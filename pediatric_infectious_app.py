@@ -297,6 +297,11 @@ def main() -> None:
         "final decisions require clinician judgment and local pathways."
     )
 
+    if "last_assessment" not in st.session_state:
+        st.session_state["last_assessment"] = None
+    if "generation_count" not in st.session_state:
+        st.session_state["generation_count"] = 0
+
     with st.form("patient_form"):
         st.subheader("Patient details")
         col1, col2, col3 = st.columns(3)
@@ -361,7 +366,7 @@ def main() -> None:
         submitted = st.form_submit_button("Generate assessment")
 
     if submitted:
-        assessment = generate_assessment(
+        st.session_state["last_assessment"] = generate_assessment(
             age_months=computed_age_months,
             fever_days=int(fever_days),
             symptoms=symptoms,
@@ -371,8 +376,12 @@ def main() -> None:
             unstable=unstable,
             fever_without_source=fever_without_source,
         )
+        st.session_state["generation_count"] += 1
 
+    if st.session_state["last_assessment"] is not None:
+        assessment = st.session_state["last_assessment"]
         st.subheader("Assessment")
+        st.caption(f"Generated assessment run #{st.session_state['generation_count']}")
         with st.expander("Cannot miss / rule out now", expanded=True):
             _render_list(assessment["cannot_miss"], "No immediate red-flag diagnoses triggered from current inputs.")
 
