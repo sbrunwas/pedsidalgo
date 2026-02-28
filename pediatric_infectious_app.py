@@ -1,192 +1,314 @@
-"""
-Streamlit application for pediatric infectious disease differential.
+"""Streamlit app for pediatric infectious disease differential and next steps.
 
-This app allows clinicians to enter patient details—age, duration of fever,
-symptoms and physical exam findings—and receive a suggested differential
-diagnosis and next steps.  The logic is based on guidelines compiled from
-Children’s Hospital of Philadelphia pathways, UCSF consensus guidelines and
-CDC recommendations.  For example, bronchiolitis management comes from
-CHOP’s bronchiolitis pathway where supportive care, suctioning and oxygen
-are recommended【109856319218224†L220-L307】, and pneumonia treatment follows
-UCSF guidelines recommending amoxicillin for typical bacterial pneumonia
-【806213690256861†L168-L199】.  Kawasaki criteria are drawn from CHOP’s
-Kawasaki disease pathway【65725433074396†L236-L347】.
-
-Disclaimer: this tool is for educational purposes only and should not be
-used as a substitute for clinical judgement.  Always consult local
-protocols and specialists when managing pediatric patients.
+Educational support tool only. Outputs are framed as considerations and rule-outs,
+not definitive diagnoses. Always follow local pathways and clinician judgment.
 """
 
-import streamlit as st
+from __future__ import annotations
+
+from typing import Dict, List
+
+try:
+    import streamlit as st
+except ModuleNotFoundError:  # Enables logic testing in environments without Streamlit installed.
+    st = None
 
 
-def get_differential(age_years: float, fever_days: int, symptoms: list, exam: list, immunocompromised: bool):
-    """Generate a differential diagnosis and management recommendations.
+def _add_unique(items: List[str], entry: str) -> None:
+    if entry not in items:
+        items.append(entry)
 
-    Parameters
-    ----------
-    age_years : float
-        Age of the patient in years.  Three months ≈ 0.25 years.
-    fever_days : int
-        Number of consecutive days with fever.
-    symptoms : list of str
-        List of selected symptoms.
-    exam : list of str
-        List of selected physical exam findings.
-    immunocompromised : bool
-        Whether the patient is known to be immunocompromised or has other high‑risk factors.
 
-    Returns
-    -------
-    conditions : list of str
-        Differential diagnoses to consider.
-    recommendations : list of str
-        Suggested next steps based on guidelines.
+def generate_assessment(
+    age_months: int,
+    fever_days: int,
+    symptoms: List[str],
+    exam: List[str],
+    high_risk: bool,
+    toxic: bool,
+    unstable: bool,
+    fever_without_source: bool,
+) -> Dict[str, List[str]]:
+    """Return structured, safety-first clinical considerations.
+
+    The function is deterministic and prioritizes urgent rule-outs first.
     """
 
-    conditions = []
-    recommendations = []
+    features = {*(s.lower() for s in symptoms), *(e.lower() for e in exam)}
 
-    # Normalize features to lower case for easier matching
-    features = [f.lower() for f in (symptoms + exam)]
+    cannot_miss: List[str] = []
+    common: List[str] = []
+    prolonged_or_special: List[str] = []
+    recommended_workup: List[str] = []
+    recommended_initial_management: List[str] = []
+    consults: List[str] = []
+    admit_considerations: List[str] = []
+    discharge_considerations: List[str] = []
 
-    # Age thresholds
-    age_months = age_years * 12.0
-    # Very young infants (< 3 months) – high risk for SBI
-    if age_months < 3:
-        conditions.append("Serious bacterial infection (sepsis, UTI, meningitis)")
-        recommendations.append(
-            "Infants under 3 months with fever require full sepsis work‑up (blood, urine and CSF cultures) and hospital admission for empiric IV antibiotics【507335888327708†L69-L72】."
+    age_years = age_months / 12.0
+    infant_under_90d = age_months < 3
+
+    # Core safety net and immediate threats.
+    if unstable or toxic:
+        _add_unique(cannot_miss, "Sepsis/shock with potential end-organ hypoperfusion")
+        _add_unique(
+            recommended_workup,
+            "Immediate sepsis evaluation: CBC, CMP, lactate, blood cultures, UA/urine culture, consider VBG/ABG and coagulation panel.",
+        )
+        _add_unique(
+            recommended_initial_management,
+            "Stabilize ABCs, establish IV/IO access, give fluid resuscitation as indicated, and start empiric broad-spectrum IV antibiotics per local pathway.",
+        )
+        _add_unique(admit_considerations, "PICU/monitored admission for unstable or ill-appearing child.")
+
+    if high_risk:
+        _add_unique(cannot_miss, "Invasive bacterial infection in immunocompromised/high-risk host")
+        _add_unique(
+            recommended_workup,
+            "Lower threshold for blood cultures, broad infectious workup, and early source imaging based on exam.",
+        )
+        _add_unique(
+            recommended_initial_management,
+            "Start empiric antimicrobials early after cultures when feasible; tailor quickly to local antibiogram and host risk.",
+        )
+        _add_unique(consults, "Early infectious diseases consultation for high-risk host.")
+        _add_unique(admit_considerations, "Admission favored in immunocompromised/high-risk patients with fever.")
+
+    if infant_under_90d:
+        _add_unique(cannot_miss, "Serious bacterial infection in febrile infant <90 days (bacteremia/UTI/meningitis)")
+        _add_unique(
+            recommended_workup,
+            "Age-stratified febrile infant pathway: blood culture, inflammatory markers, catheterized UA + urine culture, and CSF studies when indicated.",
+        )
+        _add_unique(
+            recommended_initial_management,
+            "Use local febrile infant risk stratification; start empiric IV antibiotics when high-risk criteria are met.",
+        )
+        _add_unique(admit_considerations, "Hospital admission is commonly indicated for infants <28 days and many 29-60 day infants.")
+
+    neuro_red_flags = {
+        "headache",
+        "neck stiffness",
+        "seizure",
+        "altered mental status",
+        "ams",
+    }
+    if features.intersection(neuro_red_flags):
+        _add_unique(cannot_miss, "Meningitis/encephalitis")
+        _add_unique(
+            recommended_workup,
+            "Obtain blood cultures and urgent LP when safe; neuroimaging first if signs of increased ICP/focal deficits.",
+        )
+        _add_unique(
+            recommended_initial_management,
+            "Do not delay empiric IV antimicrobials for suspected CNS infection in unstable patients.",
+        )
+        _add_unique(admit_considerations, "Admit for close neurologic monitoring and definitive infectious evaluation.")
+
+    respiratory_distress_flags = {
+        "hypoxia (spo2 < 90%)",
+        "tachypnea or increased work of breathing",
+        "difficulty breathing",
+    }
+    if features.intersection(respiratory_distress_flags):
+        _add_unique(cannot_miss, "Impending respiratory failure / severe lower respiratory tract infection")
+        _add_unique(
+            recommended_workup,
+            "Continuous pulse oximetry and respiratory assessment; consider chest radiograph if severe illness/admission likely.",
+        )
+        _add_unique(
+            recommended_initial_management,
+            "Provide oxygen/supportive respiratory care and escalate support per local respiratory pathway.",
+        )
+        _add_unique(admit_considerations, "Admit if hypoxic, significant work of breathing, apnea risk, or poor oral intake.")
+
+    if "rapidly progressive severe pain" in features or "pain out of proportion" in features:
+        _add_unique(cannot_miss, "Necrotizing soft tissue infection")
+        _add_unique(
+            recommended_workup,
+            "Urgent surgical evaluation plus broad labs/cultures; avoid delay for definitive imaging if unstable.",
+        )
+        _add_unique(recommended_initial_management, "Begin broad-spectrum IV antibiotics and emergent source control.")
+        _add_unique(consults, "Immediate surgery consultation for possible necrotizing infection.")
+
+    # Always consider UTI/pyelo for young children/febrile without source.
+    uri_focus = {"runny or stuffy nose", "cough", "wheeze", "sore throat", "ear pain"}
+    clear_uri_focus = bool(features.intersection(uri_focus))
+    uti_trigger = (
+        (age_months < 24 and fever_days >= 2 and (fever_without_source or not clear_uri_focus))
+        or fever_without_source
+        or "burning/frequent urination" in features
+    )
+    if uti_trigger:
+        target_bucket = cannot_miss if age_months < 24 or fever_without_source else common
+        _add_unique(target_bucket, "UTI/pyelonephritis (including without urinary symptoms)")
+        _add_unique(
+            recommended_workup,
+            "Obtain urinalysis and urine culture (catheterized specimen in non-toilet-trained child) before antibiotics when feasible.",
         )
 
-    # Sepsis or septic shock
-    if immunocompromised:
-        conditions.append("Sepsis or septic shock")
-        recommendations.append(
-            "High‑risk patients should be screened for sepsis; obtain blood cultures and begin IV fluids and broad‑spectrum antibiotics within one hour【140001994586765†L194-L203】."
+    # Common etiologies.
+    if age_years < 2 and ("wheeze" in features or "cough" in features):
+        _add_unique(common, "Bronchiolitis / viral lower respiratory tract infection")
+        _add_unique(
+            recommended_initial_management,
+            "Bronchiolitis care is mainly supportive: suctioning, hydration, antipyretics, oxygen if hypoxic.",
         )
 
-    # Bronchiolitis
-    if ("cough" in features or "wheeze" in features) and age_years < 2:
-        conditions.append("Bronchiolitis (viral lower respiratory infection)")
-        recommendations.append(
-            "Most cases are viral.  Provide supportive care: nasal suctioning, hydration, fever control and supplemental oxygen if SpO₂ < 90 %【109856319218224†L220-L307】.  Bronchodilators and steroids are rarely beneficial.  Consider high‑flow nasal cannula therapy if persistent increased work of breathing."
+    if "cough" in features and (
+        "tachypnea or increased work of breathing" in features
+        or "hypoxia (spo2 < 90%)" in features
+        or fever_days >= 2
+    ):
+        _add_unique(common, "Community-acquired pneumonia (viral or bacterial)")
+        _add_unique(
+            recommended_workup,
+            "Consider chest radiograph when severe illness, hypoxia, or admission is being considered.",
         )
 
-    # Pneumonia / lower respiratory tract infection
-    if "difficulty breathing" in features or ("cough" in features and age_years >= 2):
-        conditions.append("Pneumonia or lower respiratory tract infection")
-        recommendations.append(
-            "Assess for respiratory distress.  For outpatients, avoid routine imaging; if typical bacterial pneumonia is suspected, treat with high‑dose amoxicillin (45 mg/kg/dose twice daily for 5 days)【806213690256861†L168-L199】.  Admit if hypoxic, dehydrated or failing outpatient therapy【806213690256861†L157-L163】.  For hospitalized children, obtain PA and lateral chest radiograph and start IV ampicillin【806213690256861†L330-L389】."
+    if features.intersection({"runny or stuffy nose", "cough", "sore throat"}):
+        _add_unique(common, "Viral URI (including influenza/COVID depending on season and circulation)")
+        _add_unique(
+            recommended_workup,
+            "Consider influenza/COVID testing when result will change treatment, isolation, or disposition.",
         )
 
-    # Viral upper respiratory infection / influenza
-    if "runny or stuffy nose" in features and fever_days < 5 and "cough" in features:
-        conditions.append("Viral upper respiratory infection / influenza")
-        recommendations.append(
-            "Provide symptomatic care (fluids, antipyretics).  During influenza season, test for influenza and SARS‑CoV‑2 if results will influence management【599095123826586†L159-L170】.  Antiviral treatment with oseltamivir is recommended for hospitalized or high‑risk patients【599095123826586†L141-L171】."
-        )
+    if (
+        "sore throat" in features
+        and "cough" not in features
+        and ("swollen lymph nodes" in features or age_years >= 3)
+    ):
+        _add_unique(common, "Group A streptococcal pharyngitis")
+        _add_unique(recommended_workup, "Obtain rapid strep test ± throat culture per local testing protocol.")
 
-    # Acute bacterial sinusitis
     if ("runny or stuffy nose" in features or "nasal discharge" in features) and fever_days >= 10:
-        conditions.append("Acute bacterial sinusitis")
-        recommendations.append(
-            "Diagnosis is clinical: persistent nasal discharge or cough >10 days, or worsening symptoms, or abrupt onset of fever ≥39 °C with purulent nasal discharge for ≥3 days【356009382797648†L35-L56】.  Treat with amoxicillin or amoxicillin‑clavulanate【356009382797648†L68-L96】; consider cephalosporin or levofloxacin for penicillin allergy【356009382797648†L78-L96】."
+        _add_unique(common, "Acute bacterial sinusitis")
+        _add_unique(
+            recommended_initial_management,
+            "If persistent/worsening bacterial sinusitis pattern is present, consider amoxicillin-clavulanate per local guideline.",
         )
 
-    # Group A streptococcal pharyngitis
-    if "sore throat" in features and "swollen lymph nodes" in features and "cough" not in features:
-        conditions.append("Group A streptococcal (GAS) pharyngitis")
-        recommendations.append(
-            "Obtain rapid antigen detection test or throat culture.  If positive, treat with penicillin or amoxicillin for 10 days【420852390700442†L236-L290】.  Consider cephalexin or azithromycin for penicillin allergy【420852390700442†L270-L296】."
+    if "fluctuant skin lesion" in features or ("rash" in features and "tender skin" in features):
+        _add_unique(common, "Cellulitis/abscess")
+        _add_unique(
+            recommended_workup,
+            "Evaluate for drainable collection; bedside ultrasound can help when fluctuance is uncertain.",
         )
 
-    # Urinary tract infection
-    if "burning or frequent urination" in features or "burning/frequent urination" in features:
-        conditions.append("Urinary tract infection (UTI)")
-        recommendations.append(
-            "Obtain urinalysis and urine culture via catheterized or clean‑catch specimen; start empiric antibiotics if UA is positive and adjust based on culture【983498909858577†L220-L311】.  Admit if ill appearing, dehydrated or unable to tolerate oral therapy【983498909858577†L220-L311】."
-        )
-
-    # Meningitis
-    if "neck stiffness" in features or "seizure" in features or ("headache" in features and fever_days >= 1):
-        conditions.append("Meningitis")
-        recommendations.append(
-            "Perform blood cultures and lumbar puncture unless contraindicated.  Obtain head CT before LP if there is altered mental status, focal neurologic deficits, papilledema, recent head trauma, intracranial mass or coagulopathy【404628699029728†L208-L244】.  Start empiric IV antibiotics immediately after cultures."
-        )
-
-    # Cellulitis / abscess
-    if "fluctuant lesion" in features or "fluctuant skin lesion" in features or ("rash" in features and "tender" in features):
-        conditions.append("Cellulitis or abscess")
-        recommendations.append(
-            "Evaluate for drainable collection; use ultrasound if needed.  Incise and drain abscesses and begin antibiotics covering staphylococci and streptococci.  Admit if systemic signs or failure to improve【241280290133427†L253-L305】."
-        )
-
-    # Septic arthritis or osteomyelitis
     if "joint pain" in features or "limp" in features:
-        conditions.append("Septic arthritis or osteomyelitis")
-        recommendations.append(
-            "Urgent evaluation by orthopedics; obtain blood cultures and imaging (ultrasound or MRI).  Start empiric IV antibiotics covering Staphylococcus aureus and streptococci."
-        )
+        _add_unique(cannot_miss, "Septic arthritis / osteomyelitis")
+        _add_unique(recommended_workup, "Send ESR/CRP, blood cultures, and targeted imaging; urgent orthopedic evaluation.")
+        _add_unique(consults, "Orthopedics consult for suspected septic joint or osteomyelitis.")
 
-    # Kawasaki disease
-    # Count principal clinical features: oral changes, conjunctival injection, extremity changes, cervical lymphadenopathy, rash
-    kd_features = 0
-    if "conjunctival injection" in features:
-        kd_features += 1
-    if "oral mucosal changes" in features or "strawberry tongue" in features:
-        kd_features += 1
-    if "extremity changes" in features:
-        kd_features += 1
-    if "swollen lymph nodes" in features:
-        kd_features += 1
-    if "rash" in features:
-        kd_features += 1
+    # Fever-duration based pathways.
+    kd_feature_labels = {
+        "conjunctival injection",
+        "oral mucosal changes",
+        "oral mucosal changes (e.g., strawberry tongue, red or cracked lips)",
+        "strawberry tongue",
+        "extremity changes",
+        "extremity changes (erythema, edema or peeling)",
+        "swollen lymph nodes",
+        "rash",
+    }
+    kd_count = len(features.intersection(kd_feature_labels))
+
     if fever_days >= 5:
-        if kd_features >= 4:
-            conditions.append("Complete Kawasaki disease")
-            recommendations.append(
-                "Consult cardiology and rheumatology.  Initiate IVIG (2 g/kg) and high‑dose aspirin (30–50 mg/kg/day in divided doses) followed by low‑dose aspirin after defervescence【65725433074396†L236-L347】.  Obtain baseline echocardiogram and repeat to monitor coronary arteries."
+        if kd_count >= 4:
+            _add_unique(cannot_miss, "Kawasaki disease (high clinical suspicion)")
+            _add_unique(
+                prolonged_or_special,
+                "MIS-C and other inflammatory syndromes should still be considered with persistent fever.",
             )
-        elif 2 <= kd_features <= 3:
-            conditions.append("Incomplete Kawasaki disease")
-            recommendations.append(
-                "Consider incomplete Kawasaki disease; obtain inflammatory markers and echocardiogram.  Consult cardiology and rheumatology for guidance on IVIG therapy【65725433074396†L236-L347】."
+            _add_unique(
+                recommended_workup,
+                "Kawasaki-focused workup: CRP/ESR, CBC, CMP, UA, and echocardiogram per pathway.",
+            )
+            _add_unique(
+                recommended_initial_management,
+                "Consult cardiology urgently and treat per local Kawasaki pathway (e.g., IVIG/aspirin decisions by treating team).",
+            )
+            _add_unique(consults, "Cardiology consultation for suspected Kawasaki disease.")
+            _add_unique(consults, "Consider rheumatology consultation per local Kawasaki/MIS-C pathway.")
+        elif kd_count >= 2:
+            _add_unique(prolonged_or_special, "Incomplete Kawasaki disease (fever >=5 days with compatible features)")
+            _add_unique(prolonged_or_special, "MIS-C and other inflammatory syndromes")
+            _add_unique(
+                recommended_workup,
+                "Evaluate incomplete Kawasaki pathway: CRP/ESR, CBC, CMP, UA, echocardiogram; trend inflammatory markers.",
+            )
+            _add_unique(consults, "Cardiology/rheumatology discussion for prolonged fever with Kawasaki features.")
+        else:
+            _add_unique(prolonged_or_special, "Kawasaki disease")
+            _add_unique(prolonged_or_special, "MIS-C and other inflammatory syndromes")
+            _add_unique(
+                recommended_workup,
+                "Persistent fever >=5 days should trigger inflammatory evaluation (CRP/ESR, CBC, CMP, UA) and reassessment for evolving Kawasaki signs.",
             )
 
-    # Fever of unknown origin / FUO
-    if fever_days >= 8 and not conditions:
-        conditions.append("Fever of unknown origin")
-        recommendations.append(
-            "Daily fever ≥38.3 °C for ≥8 days qualifies as fever of unknown origin【995604675643215†L212-L226】.  Obtain a detailed history (travel, exposures), complete physical exam and targeted laboratory work‑up.  Consider referral to infectious disease and rheumatology."
+    if fever_days >= 8:
+        _add_unique(prolonged_or_special, "Fever of unknown origin framework")
+        _add_unique(
+            recommended_workup,
+            "If fever persists >=8 days, broaden evaluation: exposure/travel history, weight loss/night sweats, malignancy/autoimmune considerations.",
         )
+        _add_unique(consults, "Consider infectious diseases and rheumatology consultation for persistent unexplained fever.")
 
-    # If no specific conditions matched
-    if not conditions:
-        conditions.append("Non‑specific viral illness")
-        recommendations.append(
-            "Most short‑duration febrile illnesses in children are viral.  Provide symptomatic care and reassess if fever persists or new symptoms develop."
-        )
+    # Disposition guidance.
+    _add_unique(
+        discharge_considerations,
+        "Discharge only if hemodynamically stable, oxygenating adequately, tolerating fluids, and with reliable follow-up/return precautions.",
+    )
+    _add_unique(
+        discharge_considerations,
+        "Re-evaluation is needed for persistent fever, worsening work of breathing, decreased urine output, new neurologic signs, or clinical deterioration.",
+    )
 
-    return conditions, recommendations
+    if not common and not prolonged_or_special and not cannot_miss:
+        _add_unique(common, "Self-limited viral syndrome (diagnosis of exclusion after safety screen)")
+
+    return {
+        "cannot_miss": cannot_miss,
+        "common": common,
+        "prolonged_or_special": prolonged_or_special,
+        "recommended_workup": recommended_workup,
+        "recommended_initial_management": recommended_initial_management,
+        "consults": consults,
+        "admit_considerations": admit_considerations,
+        "discharge_considerations": discharge_considerations,
+    }
 
 
-def main():
+def _render_list(items: List[str], empty_text: str) -> None:
+    if items:
+        for item in items:
+            st.markdown(f"- {item}")
+    else:
+        st.write(empty_text)
+
+
+def main() -> None:
+    if st is None:
+        raise RuntimeError("Streamlit is not installed. Install dependencies from requirements.txt.")
     st.set_page_config(page_title="Pediatric Infectious Disease Differential", layout="centered")
     st.title("Pediatric Infectious Disease Differential Tool")
-    st.write(
-        "This tool provides a differential diagnosis and suggested next steps based on patient age,\n"
-        "duration of fever, symptoms and physical exam findings.  It is intended for educational\n"
-        "purposes only and does not replace clinical judgement.  Always consult your local protocols."
+    st.caption(
+        "Educational decision support only. Use to broaden differential and prioritize rule-outs; "
+        "final decisions require clinician judgment and local pathways."
     )
 
     with st.form("patient_form"):
         st.subheader("Patient details")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
-            age_years = st.number_input("Age (years)", min_value=0.0, max_value=18.0, value=1.0, step=0.1)
+            age_years = st.number_input("Age (years)", min_value=0, max_value=18, value=1, step=1)
         with col2:
-            fever_days = st.number_input("Days of fever", min_value=0, max_value=30, value=1, step=1)
+            age_month_remainder = st.number_input("Additional months", min_value=0, max_value=11, value=0, step=1)
+        with col3:
+            fever_days = st.number_input("Fever duration (days)", min_value=0, max_value=60, value=1, step=1)
+
+        computed_age_months = int(age_years * 12 + age_month_remainder)
+        st.write(f"Computed age: **{computed_age_months} months** ({computed_age_months / 12:.2f} years)")
 
         st.subheader("Symptoms")
         symptom_options = [
@@ -203,39 +325,82 @@ def main():
             "Poor feeding or irritability",
             "Headache",
             "Joint pain",
+            "Limp",
             "Neck stiffness",
             "Seizure",
+            "Altered mental status",
+            "Rapidly progressive severe pain",
+            "Pain out of proportion",
         ]
-        symptoms = st.multiselect("Select all that apply", symptom_options)
+        symptoms = st.multiselect("Select symptoms", symptom_options)
 
-        st.subheader("Physical exam findings")
+        st.subheader("Exam findings")
         exam_options = [
             "Conjunctival injection",
-            "Oral mucosal changes (e.g., strawberry tongue, red or cracked lips)",
+            "Oral mucosal changes",
             "Swollen lymph nodes",
-            "Extremity changes (erythema, edema or peeling)",
+            "Extremity changes",
             "Rash",
             "Tachypnea or increased work of breathing",
-            "Hypoxia (SpO₂ < 90%)",
+            "Hypoxia (SpO2 < 90%)",
             "Signs of dehydration",
             "Fluctuant skin lesion",
+            "Tender skin",
         ]
-        exam = st.multiselect("Select all that apply", exam_options)
+        exam = st.multiselect("Select exam findings", exam_options)
 
-        immunocompromised = st.checkbox(
-            "Immunocompromised/high‑risk (e.g., central line, asplenia, malignancy)"
-        )
+        st.subheader("Risk flags")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            toxic = st.checkbox("Toxic / ill-appearing")
+            unstable = st.checkbox("Hemodynamic instability (e.g., hypotension/poor perfusion)")
+        with col_b:
+            high_risk = st.checkbox("Immunocompromised / high risk")
+            fever_without_source = st.checkbox("Fever without obvious source")
 
-        submitted = st.form_submit_button("Get Differential")
+        submitted = st.form_submit_button("Generate assessment")
 
     if submitted:
-        conditions, recs = get_differential(age_years, int(fever_days), symptoms, exam, immunocompromised)
-        st.subheader("Possible diagnoses to consider")
-        for cond in conditions:
-            st.write(f"• {cond}")
-        st.subheader("Recommended next steps")
-        for rec in recs:
-            st.write(f"• {rec}")
+        assessment = generate_assessment(
+            age_months=computed_age_months,
+            fever_days=int(fever_days),
+            symptoms=symptoms,
+            exam=exam,
+            high_risk=high_risk,
+            toxic=toxic,
+            unstable=unstable,
+            fever_without_source=fever_without_source,
+        )
+
+        st.subheader("Assessment")
+        with st.expander("Cannot miss / rule out now", expanded=True):
+            _render_list(assessment["cannot_miss"], "No immediate red-flag diagnoses triggered from current inputs.")
+
+        with st.expander("Common considerations", expanded=True):
+            _render_list(assessment["common"], "No specific common etiology flagged from entered features.")
+
+        with st.expander("If prolonged/worsening", expanded=True):
+            _render_list(
+                assessment["prolonged_or_special"],
+                "No prolonged-fever pathway triggered yet; reassess if fever persists or new features emerge.",
+            )
+
+        with st.expander("Suggested workup", expanded=True):
+            _render_list(assessment["recommended_workup"], "Use local pathway-guided targeted workup.")
+
+        with st.expander("Initial management (high level)", expanded=True):
+            _render_list(
+                assessment["recommended_initial_management"],
+                "Provide supportive care, monitor closely, and escalate based on trajectory.",
+            )
+
+        with st.expander("Consults / disposition tips", expanded=True):
+            st.markdown("**Consults**")
+            _render_list(assessment["consults"], "No immediate specialty consult triggered by current inputs.")
+            st.markdown("**Admit considerations**")
+            _render_list(assessment["admit_considerations"], "Consider outpatient management only if low risk and reliable follow-up.")
+            st.markdown("**Discharge considerations**")
+            _render_list(assessment["discharge_considerations"], "Use strict return precautions and timely follow-up.")
 
 
 if __name__ == "__main__":
