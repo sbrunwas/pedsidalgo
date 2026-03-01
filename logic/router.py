@@ -300,6 +300,46 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("pharyngitis_rule", False, "Centor module not triggered")
 
+    # Broad finding-to-pathway alignment so selected findings reliably influence suggestions.
+    broad_hits: List[str] = []
+    broad_consider_map = {
+        "sore_throat": ["pharyngitis"],
+        "coryza": ["influenza", "covid"],
+        "nasal_congestion": ["influenza", "covid"],
+        "myalgias": ["influenza", "covid"],
+        "chills": ["influenza", "covid"],
+        "fatigue": ["influenza", "covid"],
+    }
+    for finding, pathway_ids in broad_consider_map.items():
+        if not patient.get(finding):
+            continue
+        for pid in pathway_ids:
+            p = by_id[pid]
+            _register(
+                activations,
+                pathway_id=pid,
+                name=p["title"],
+                status="CONSIDER",
+                priority="NORMAL",
+                reason=f"Consider because finding '{finding}' aligns with this pathway",
+                source="chop" if p.get("publisher") == "chop" else "non_chop",
+            )
+            broad_hits.append(f"{finding}->{pid}")
+
+    if patient.get("koplik_spots"):
+        add_note(
+            "measles",
+            "Measles",
+            "Consider measles because Koplik spots are present.",
+            priority="HIGH",
+        )
+        broad_hits.append("koplik_spots->measles")
+
+    if broad_hits:
+        trace("broad_finding_alignment", True, ", ".join(broad_hits))
+    else:
+        trace("broad_finding_alignment", False, "No broad alignment additions")
+
     # Simplified rash differential module.
     if patient.get("rash"):
         add_note(
