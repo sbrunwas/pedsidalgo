@@ -412,12 +412,29 @@ def apply_theme() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --bg-a: #f4fbf8;
+            --bg-b: #f8fbff;
+            --ink: #1f3141;
+            --ink-soft: #4a5f73;
+            --panel-border: #dbe8ef;
+            --accent: #1f8a70;
+            --accent-soft: #e7f6f1;
+        }
         .stApp {
-            background: linear-gradient(160deg, #eef7ff 0%, #f8fcff 45%, #ffffff 100%);
+            background:
+                radial-gradient(900px 420px at 5% -12%, #e8f7f1 0%, rgba(232, 247, 241, 0) 60%),
+                radial-gradient(1000px 520px at 95% -20%, #e9f2ff 0%, rgba(233, 242, 255, 0) 62%),
+                linear-gradient(160deg, var(--bg-a) 0%, var(--bg-b) 50%, #ffffff 100%);
+            color: var(--ink);
+            font-family: "Avenir Next", "Nunito", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
         }
         .main .block-container {
             max-width: 1120px;
             padding-top: 1.2rem;
+        }
+        .stMarkdown, .stText, .stCaption, p, label, div {
+            color: var(--ink);
         }
         .router-title {
             margin: 0 0 0.6rem 0;
@@ -426,16 +443,36 @@ def apply_theme() -> None:
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            color: #16344b;
-            letter-spacing: 0.2px;
+            color: #10354d;
+            letter-spacing: 0.15px;
+            font-weight: 700;
         }
-        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stNumberInput"]),
-        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMultiSelect"]),
-        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stRadio"]),
-        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stCheckbox"]) {
-            background: rgba(255, 255, 255, 0.72);
+        [data-testid="stMarkdownContainer"] h2 {
+            color: #184864;
+            font-weight: 700;
+        }
+        [data-testid="stCaptionContainer"] {
+            color: var(--ink-soft);
+        }
+        [data-testid="stNumberInput"] input,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
+        [data-testid="stTextInput"] input {
+            border: 1px solid var(--panel-border);
+            background: #ffffff;
             border-radius: 10px;
-            padding: 0.2rem 0.45rem 0.3rem 0.45rem;
+        }
+        [data-testid="stNumberInput"] input:focus,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within,
+        [data-testid="stTextInput"] input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent-soft);
+        }
+        [data-testid="stVerticalBlock"] > [data-testid="stContainer"] {
+            border: 1px solid var(--panel-border) !important;
+            background: linear-gradient(180deg, #ffffff 0%, #fcfeff 100%);
+            border-radius: 14px;
+            box-shadow: 0 6px 16px rgba(20, 58, 86, 0.05);
+            padding: 0.15rem 0.2rem;
         }
         </style>
         """,
@@ -571,6 +608,19 @@ def main() -> None:
 
     st.subheader("Differential To Consider")
     with st.container(border=True):
+        fever_general = source_catalog.get("fever_general")
+        if fever_days > 0 or tmax_c >= 38.0:
+            if fever_general:
+                st.markdown(
+                    f"- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
+                    f"Continue red-flag screening and reassessment. "
+                    f"[Fever General Pathway]({fever_general['url']})"
+                )
+            else:
+                st.markdown(
+                    "- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
+                    "Continue red-flag screening and reassessment."
+                )
         if 2 <= age_months <= 24 and result.get("uticalc_pretest_percent") is not None:
             uti_text = f"UTICalc pretest (embedded): {result['uticalc_pretest_percent']:.2f}%"
             if uti_item and uti_item.get("status") == "ACTIVE":
