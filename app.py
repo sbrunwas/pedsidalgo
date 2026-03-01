@@ -569,40 +569,39 @@ def main() -> None:
 
     st.subheader("Clinical Findings")
     findings_map = {
+        "Cough": "cough",
+        "Sore Throat": "sore_throat",
+        "Nasal Congestion": "nasal_congestion",
+        "Coryza": "coryza",
+        "Fatigue": "fatigue",
+        "Myalgias": "myalgias",
+        "Chills": "chills",
+        "Rash": "rash",
+        "Vomiting": "vomiting",
+        "Diarrhea": "diarrhea",
+        "Fever Without Source": "fever_without_source",
         "Seizure": "seizure",
         "Neck Stiffness": "neck_stiffness",
         "Severe Headache": "severe_headache",
         "Hypoxia": "hypoxia",
         "Respiratory Distress": "respiratory_distress",
-        "Cough": "cough",
         "Wheeze": "wheeze",
         "Stridor": "stridor",
         "Barky Cough": "barky_cough",
-        "Sore Throat": "sore_throat",
         "Conjunctivitis": "conjunctivitis",
-        "Coryza": "coryza",
-        "Nasal Congestion": "nasal_congestion",
-        "Myalgias": "myalgias",
-        "Chills": "chills",
-        "Fatigue": "fatigue",
         "Koplik Spots": "koplik_spots",
         "Strawberry Tongue": "strawberry_tongue",
         "Fissured Lips": "fissured_lips",
-        "Rash": "rash",
         "Cervical Lymphadenopathy": "cervical_lymphadenopathy",
         "Extremity Changes": "extremity_changes",
         "Eye Swelling": "eye_swelling",
         "Periorbital Erythema": "periorbital_erythema",
-        "Pain With EOM": "pain_with_eom",
         "Drooling": "drooling",
         "Muffled Voice": "muffled_voice",
         "Trismus": "trismus",
-        "Vomiting": "vomiting",
-        "Diarrhea": "diarrhea",
         "Severe Focal Abdominal Pain": "severe_focal_abdominal_pain",
         "Dysuria": "dysuria",
         "Flank Pain": "flank_pain",
-        "Fever Without Source": "fever_without_source",
         "Joint Pain": "joint_pain",
         "Limp": "limp",
         "Refusal To Bear Weight": "refusal_to_bear_weight",
@@ -615,6 +614,21 @@ def main() -> None:
     selected_labels = st.multiselect("Select findings", finding_labels)
     selected_keys = [findings_map[label] for label in selected_labels]
     sore_throat_selected = "sore_throat" in selected_keys
+    rash_detail_features: List[str] = []
+    if "rash" in selected_keys:
+        rash_detail_features = st.multiselect(
+            "Rash Feature Details (optional)",
+            [
+                "Sandpaper Rash",
+                "Slapped Cheek",
+                "Posterior Auricular Lymphadenopathy",
+                "Herald Patch / Christmas Tree Distribution",
+                "Vesicular Lesions",
+            ],
+        )
+    bloody_diarrhea = False
+    if "diarrhea" in selected_keys:
+        bloody_diarrhea = st.checkbox("Bloody Diarrhea", value=False)
 
     kd_features = 0
 
@@ -650,6 +664,12 @@ def main() -> None:
     patient["influenza_like_illness"] = bool((flu_like_count >= 2) or (fever_days > 0 and flu_like_count >= 1))
     patient["high_fever"] = bool(tmax_c >= 40.0)  # ~104F threshold for rash logic.
     patient["high_fever_3_4_days_before_rash"] = bool(tmax_c >= 40.0 and fever_days in {3, 4})
+    patient["sandpaper_rash"] = "Sandpaper Rash" in rash_detail_features
+    patient["slapped_cheek"] = "Slapped Cheek" in rash_detail_features
+    patient["posterior_auricular_lymphadenopathy"] = "Posterior Auricular Lymphadenopathy" in rash_detail_features
+    patient["herald_patch_christmas_tree"] = "Herald Patch / Christmas Tree Distribution" in rash_detail_features
+    patient["vesicular_lesions"] = "Vesicular Lesions" in rash_detail_features
+    patient["bloody_diarrhea"] = bool(bloody_diarrhea)
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
     # Robust KD principal-feature counting to support fever+feature consideration logic.
@@ -744,8 +764,8 @@ def main() -> None:
     differential_items: List[Dict[str, Any]] = result.get("pathways", [])
     uti_item = next((p for p in differential_items if p.get("id") == "uti"), None)
 
-    # UTI is intentionally embedded/hidden from explicit differential cards.
-    visible_items = [p for p in differential_items if p.get("id") != "uti"]
+    uti_symptom_triggered = bool(patient.get("dysuria") or patient.get("flank_pain") or patient.get("fever_without_source"))
+    visible_items = [p for p in differential_items if (p.get("id") != "uti" or uti_symptom_triggered)]
 
     st.subheader("Differential To Consider")
     with st.container(border=True):

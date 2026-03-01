@@ -309,6 +309,12 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         "myalgias": ["influenza", "covid"],
         "chills": ["influenza", "covid"],
         "fatigue": ["influenza", "covid"],
+        "cervical_lymphadenopathy": ["pharyngitis"],
+        "fever_without_source": ["fever_general"],
+        "localized_erythema": ["cellulitis_abscess"],
+        "warmth_or_tenderness": ["cellulitis_abscess"],
+        "fluctuance_or_purulence": ["cellulitis_abscess"],
+        "localized_swelling": ["cellulitis_abscess"],
     }
     for finding, pathway_ids in broad_consider_map.items():
         if not patient.get(finding):
@@ -334,6 +340,14 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             priority="HIGH",
         )
         broad_hits.append("koplik_spots->measles")
+    if patient.get("coryza"):
+        add_note(
+            "measles",
+            "Measles",
+            "Consider measles because coryza is present (especially with compatible viral prodrome).",
+            priority="NORMAL",
+        )
+        broad_hits.append("coryza->measles")
 
     if broad_hits:
         trace("broad_finding_alignment", True, ", ".join(broad_hits))
@@ -351,12 +365,32 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         add_note("rubella", "Rubella", "Rash present: include rubella in differential.")
         add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash present: include erythema infectiosum in differential.")
         add_note("measles", "Measles", "Rash present: include measles in differential.", priority="HIGH")
+        if patient.get("sandpaper_rash"):
+            add_note("scarlet_fever", "Scarlet Fever", "Rash feature detail includes sandpaper morphology.")
+            p = by_id["pharyngitis"]
+            _register(
+                activations,
+                pathway_id="pharyngitis",
+                name=p["title"],
+                status="ACTIVE",
+                priority="NORMAL",
+                reason="Activated because sandpaper rash can align with scarlet fever / strep pharyngitis",
+                source="chop",
+            )
+        if patient.get("slapped_cheek"):
+            add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash feature detail includes slapped-cheek appearance.")
+        if patient.get("posterior_auricular_lymphadenopathy"):
+            add_note("rubella", "Rubella", "Rash feature detail includes posterior auricular lymphadenopathy.")
+        if patient.get("herald_patch_christmas_tree"):
+            add_note("pityriasis_rosea", "Pityriasis Rosea", "Rash feature detail includes herald patch / Christmas tree distribution.")
+        if patient.get("vesicular_lesions"):
+            add_note("vesicular_lesions_algorithm", "See Vesicular Lesions Algorithm", "Rash feature detail includes vesicular lesions.")
         trace("rash_module", True, "Rash selected: added viral exanthem differential notes")
     else:
         trace("rash_module", False, "No rash selected")
 
     # Respiratory pathway support so distressing respiratory presentations surface core airway/lung pathways.
-    if patient.get("respiratory_distress") or patient.get("hypoxia") or (patient.get("cough") and patient.get("wheeze")):
+    if patient.get("respiratory_distress") or patient.get("hypoxia") or patient.get("wheeze") or (patient.get("cough") and patient.get("wheeze")):
         p = by_id["bronchiolitis"]
         _register(
             activations,
@@ -364,12 +398,28 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="HIGH" if (patient.get("respiratory_distress") or patient.get("hypoxia")) else "NORMAL",
-            reason="Activated because respiratory_distress OR hypoxia OR (cough and wheeze)",
+            reason="Activated because respiratory_distress OR hypoxia OR wheeze OR (cough and wheeze)",
             source="chop",
         )
-        trace("bronchiolitis_rule", True, "respiratory_distress OR hypoxia OR cough+wheeze")
+        trace("bronchiolitis_rule", True, "respiratory_distress OR hypoxia OR wheeze OR cough+wheeze")
     else:
         trace("bronchiolitis_rule", False, "No bronchiolitis trigger")
+
+    if patient.get("drooling") or patient.get("muffled_voice") or patient.get("trismus"):
+        p = by_id["neck_space_infection"]
+        severe_combo = (patient.get("drooling") and patient.get("muffled_voice")) or patient.get("trismus")
+        _register(
+            activations,
+            pathway_id="neck_space_infection",
+            name=p["title"],
+            status="ACTIVE",
+            priority="HIGH" if severe_combo else "NORMAL",
+            reason="Activated because drooling OR muffled voice OR trismus",
+            source="chop",
+        )
+        trace("neck_space_rule", True, "drooling OR muffled_voice OR trismus")
+    else:
+        trace("neck_space_rule", False, "No neck-space trigger")
 
     if patient.get("respiratory_distress") or patient.get("hypoxia") or patient.get("cough"):
         p = by_id["pneumonia"]
@@ -431,6 +481,13 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         trace("gastro_rule", True, "vomiting OR diarrhea without severe focal abdominal pain")
     else:
         trace("gastro_rule", False, "No gastro trigger or severe focal abdominal pain present")
+    if patient.get("bloody_diarrhea"):
+        add_note(
+            "bacterial_enteritis_dysentery",
+            "Bacterial Enteritis / Dysentery",
+            "Bloody diarrhea present: consider invasive bacterial enteric causes.",
+            priority="HIGH",
+        )
     if patient.get("severe_focal_abdominal_pain"):
         notes.append(
             {
@@ -472,6 +529,12 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             source="chop",
         )
         trace("osteomyelitis_rule", True, "joint_pain OR limp OR refusal_to_bear_weight")
+        add_note(
+            "septic_arthritis",
+            "Septic Arthritis",
+            "Joint pain/limp/refusal to bear weight present: include septic arthritis in differential.",
+            priority="HIGH" if patient.get("refusal_to_bear_weight") else "NORMAL",
+        )
     else:
         trace("osteomyelitis_rule", False, "No osteomyelitis trigger")
 
