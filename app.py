@@ -578,7 +578,6 @@ def main() -> None:
         "Seizure": "seizure",
         "Neck Stiffness": "neck_stiffness",
         "Severe Headache": "severe_headache",
-        "Influenza Like Illness": "influenza_like_illness",
         "Hypoxia": "hypoxia",
         "Respiratory Distress": "respiratory_distress",
         "Cough": "cough",
@@ -588,9 +587,14 @@ def main() -> None:
         "Sore Throat": "sore_throat",
         "Conjunctivitis": "conjunctivitis",
         "Coryza": "coryza",
+        "Nasal Congestion": "nasal_congestion",
+        "Myalgias": "myalgias",
+        "Chills": "chills",
+        "Fatigue": "fatigue",
         "Koplik Spots": "koplik_spots",
         "Strawberry Tongue": "strawberry_tongue",
         "Fissured Lips": "fissured_lips",
+        "Rash": "rash",
         "Eye Swelling": "eye_swelling",
         "Periorbital Erythema": "periorbital_erythema",
         "Pain With EOM": "pain_with_eom",
@@ -620,45 +624,7 @@ def main() -> None:
     selected_labels = st.multiselect("Select findings", finding_labels)
     selected_keys = [findings_map[label] for label in selected_labels]
     sore_throat_selected = "sore_throat" in selected_keys
-    st.caption("Rash pattern and distribution are part of clinical findings.")
-    rash_pattern_label = st.selectbox(
-        "Rash Pattern",
-        ["None", "Scaly", "Maculopapular", "Vesicular"],
-        index=0,
-    )
-    rash_pattern_map = {
-        "None": None,
-        "Scaly": "scaly",
-        "Maculopapular": "maculopapular",
-        "Vesicular": "vesicular",
-    }
-    rash_pattern = rash_pattern_map[rash_pattern_label]
 
-    rash_distribution = None
-    if rash_pattern == "maculopapular":
-        dist_label = st.selectbox(
-            "Maculopapular Distribution",
-            ["No Set Pattern", "Trunk To Face/Extremities", "Head To Toes"],
-            index=0,
-        )
-        rash_distribution = {
-            "No Set Pattern": "no_set_pattern",
-            "Trunk To Face/Extremities": "trunk_to_face_extremities",
-            "Head To Toes": "head_to_toes",
-        }[dist_label]
-
-    rash_feature_options = []
-    if rash_pattern == "scaly":
-        rash_feature_options = [
-            "Herald Patch + Christmas Tree Distribution (2-3 weeks later)",
-            "Diffuse Sandpaper Like Rash After Strep Pharyngitis",
-        ]
-    elif rash_pattern == "maculopapular":
-        rash_feature_options = [
-            "Posterior Auricular Lymphadenopathy",
-            "Slapped Cheek",
-        ]
-    selected_rash_features = st.multiselect("Rash Features", rash_feature_options)
     kd_features = 0
 
     patient = {
@@ -672,8 +638,6 @@ def main() -> None:
         "altered_mental_status": altered_mental_status,
         "immunocompromised_or_onc": immunocompromised_or_onc,
         "kd_features": kd_features,
-        "rash_pattern": rash_pattern,
-        "rash_distribution": rash_distribution,
         "uticalc": {
             "sex": sex,
             "circumcised": circumcised,
@@ -688,24 +652,19 @@ def main() -> None:
         patient[flag] = False
     for flag in selected_keys:
         patient[flag] = True
+    flu_like_count = sum(
+        int(bool(patient.get(k)))
+        for k in ["cough", "sore_throat", "coryza", "nasal_congestion", "myalgias", "chills", "fatigue"]
+    )
+    patient["influenza_like_illness"] = bool((flu_like_count >= 2) or (fever_days > 0 and flu_like_count >= 1))
     patient["high_fever"] = bool(tmax_c >= 40.0)  # ~104F threshold for rash logic.
     patient["high_fever_3_4_days_before_rash"] = bool(tmax_c >= 40.0 and fever_days in {3, 4})
-    patient["herald_patch_christmas_tree"] = (
-        "Herald Patch + Christmas Tree Distribution (2-3 weeks later)" in selected_rash_features
-    )
-    patient["sandpaper_rash_after_strep"] = (
-        "Diffuse Sandpaper Like Rash After Strep Pharyngitis" in selected_rash_features
-    )
-    patient["posterior_auricular_lymphadenopathy"] = (
-        "Posterior Auricular Lymphadenopathy" in selected_rash_features
-    )
-    patient["slapped_cheek"] = "Slapped Cheek" in selected_rash_features
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
     # Robust KD principal-feature counting to support fever+feature consideration logic.
     kd_conjunctivitis = bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis"))
     kd_oral_changes = bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes"))
-    kd_rash = bool(patient.get("kd_rash") or rash_pattern is not None)
+    kd_rash = bool(patient.get("kd_rash") or patient.get("rash"))
     kd_extremity = bool(patient.get("kd_extremity_changes"))
     kd_nodes = bool(patient.get("kd_cervical_lymphadenopathy"))
     kd_features = sum([kd_conjunctivitis, kd_oral_changes, kd_rash, kd_extremity, kd_nodes])

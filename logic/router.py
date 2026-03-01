@@ -300,102 +300,30 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("pharyngitis_rule", False, "Centor module not triggered")
 
-    # Rash pattern differential module (independent of CHOP pathways except explicit ties).
-    rash_pattern = patient.get("rash_pattern")
-    rash_distribution = patient.get("rash_distribution")
-    if rash_pattern in {"scaly", "maculopapular", "vesicular"}:
-        if rash_pattern == "scaly":
-            if patient.get("herald_patch_christmas_tree"):
-                add_note(
-                    "pityriasis_rosea",
-                    "Pityriasis Rosea",
-                    "Scaly rash with localized herald patch followed by Christmas tree distribution (supportive care).",
-                )
-            if patient.get("sandpaper_rash_after_strep"):
-                add_note(
-                    "scarlet_fever",
-                    "Scarlet Fever",
-                    "Diffuse sandpaper-like rash after strep pharyngitis.",
-                )
-                p = by_id["pharyngitis"]
-                _register(
-                    activations,
-                    pathway_id="pharyngitis",
-                    name=p["title"],
-                    status="ACTIVE",
-                    priority="NORMAL",
-                    reason="Activated because scarlet fever pattern implies strep pharyngitis",
-                    source="chop",
-                )
-            trace("rash_scaly_module", True, "Scaly branch evaluated")
-
-        if rash_pattern == "maculopapular":
-            if rash_distribution == "no_set_pattern":
-                if (
-                    bool(patient.get("high_fever"))
-                    and bool(patient.get("conjunctivitis"))
-                    and bool(patient.get("strawberry_tongue"))
-                    and bool(patient.get("fissured_lips"))
-                ):
-                    p = by_id["kawasaki"]
-                    _register(
-                        activations,
-                        pathway_id="kawasaki",
-                        name=p["title"],
-                        status="ACTIVE",
-                        priority="HIGH",
-                        reason="Activated because maculopapular no-set-pattern rash with high fever + conjunctivitis + strawberry tongue + fissured lips",
-                        source="chop",
-                    )
-                else:
-                    add_note(
-                        "other_viral_exanthem",
-                        "Other Viral Exanthem",
-                        "Maculopapular rash with no set pattern and no Kawasaki feature cluster.",
-                    )
-            elif rash_distribution == "trunk_to_face_extremities":
-                if bool(patient.get("high_fever_3_4_days_before_rash")):
-                    add_note(
-                        "roseola",
-                        "Roseola",
-                        "Maculopapular rash spreading trunk to face/extremities with high fever (>104F) for 3-4 days before rash.",
-                    )
-            elif rash_distribution == "head_to_toes":
-                if bool(patient.get("posterior_auricular_lymphadenopathy")):
-                    add_note(
-                        "rubella",
-                        "Rubella",
-                        "Head-to-toe maculopapular rash with posterior auricular lymphadenopathy.",
-                    )
-                if bool(patient.get("slapped_cheek")):
-                    add_note(
-                        "erythema_infectiosum",
-                        "Erythema Infectiosum",
-                        "Head-to-toe maculopapular pattern with slapped-cheek appearance.",
-                    )
-                if (
-                    bool(patient.get("cough"))
-                    and bool(patient.get("coryza"))
-                    and bool(patient.get("conjunctivitis"))
-                    and bool(patient.get("koplik_spots"))
-                ):
-                    add_note(
-                        "measles",
-                        "Measles",
-                        "Head-to-toe rash with 4 C's (cough, coryza, conjunctivitis, Koplik spots).",
-                        priority="HIGH",
-                    )
-            trace("rash_maculopapular_module", True, f"Maculopapular branch evaluated ({rash_distribution or 'no_distribution'})")
-
-        if rash_pattern == "vesicular":
-            add_note(
-                "vesicular_lesions_algorithm",
-                "See Vesicular Lesions Algorithm",
-                "Vesicular rash pattern identified; refer to vesicular lesions algorithm.",
-            )
-            trace("rash_vesicular_module", True, "Vesicular placeholder added")
+    # Simplified rash differential module.
+    if patient.get("rash"):
+        add_note(
+            "other_viral_exanthem",
+            "Other Viral Exanthem",
+            "Rash present: include common viral exanthems in differential.",
+        )
+        add_note("roseola", "Roseola", "Rash present: include roseola in differential.")
+        add_note("rubella", "Rubella", "Rash present: include rubella in differential.")
+        add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash present: include erythema infectiosum in differential.")
+        add_note("measles", "Measles", "Rash present: include measles in differential.", priority="HIGH")
+        p = by_id["kawasaki"]
+        _register(
+            activations,
+            pathway_id="kawasaki",
+            name=p["title"],
+            status="CONSIDER",
+            priority="NORMAL",
+            reason="Rash present: include Kawasaki in differential",
+            source="chop",
+        )
+        trace("rash_module", True, "Rash selected: added viral exanthem differential notes and Kawasaki consider")
     else:
-        trace("rash_module", False, "No rash pattern selected")
+        trace("rash_module", False, "No rash selected")
 
     # Respiratory pathway support so distressing respiratory presentations surface core airway/lung pathways.
     if patient.get("respiratory_distress") or patient.get("hypoxia") or (patient.get("cough") and patient.get("wheeze")):
@@ -522,7 +450,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         [
             bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis")),
             bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes")),
-            bool(patient.get("kd_rash") or patient.get("rash_pattern")),
+            bool(patient.get("kd_rash") or patient.get("rash")),
             bool(patient.get("kd_extremity_changes")),
             bool(patient.get("kd_cervical_lymphadenopathy")),
         ]
