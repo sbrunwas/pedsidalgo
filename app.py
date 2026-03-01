@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import re
 
 import streamlit as st
-import re
 
 try:
     import requests
@@ -86,7 +86,65 @@ def init_nav_state(pathway: Dict[str, Any]) -> None:
     st.session_state.nav_history = []
 
 
-def page_router() -> None:
+def render_navigator(selected_pathway_id: str) -> None:
+    pathway = load_pathway(selected_pathway_id)
+    if not pathway:
+        st.info(f"No pathway YAML found for `{selected_pathway_id}`")
+        return
+
+    if st.session_state.get("nav_pathway") != selected_pathway_id or "nav_current" not in st.session_state:
+        init_nav_state(pathway)
+        st.session_state.nav_pathway = selected_pathway_id
+
+    nodes = {n["id"]: n for n in pathway.get("nodes", [])}
+    edges = pathway.get("edges", [])
+
+    current_id = st.session_state.get("nav_current")
+    current = nodes.get(current_id)
+    if not current:
+        st.warning("Current node missing; restarting at start node.")
+        init_nav_state(pathway)
+        current_id = st.session_state.get("nav_current")
+        current = nodes.get(current_id)
+        if not current:
+            st.error("Unable to load pathway nodes.")
+            return
+
+    st.write(f"**{pathway.get('title', selected_pathway_id)}**")
+    st.write(f"Node: `{current['id']}` ({current.get('type', 'unknown')})")
+    st.write(current.get("text", ""))
+
+    source_urls = current.get("source_urls", [])
+    if source_urls:
+        st.caption("Node source(s): " + " | ".join(source_urls))
+
+    next_ids = [e["to"] for e in edges if e.get("from") == current_id]
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Back", key="nav_back"):
+            history = st.session_state.get("nav_history", [])
+            if history:
+                st.session_state.nav_current = history.pop()
+                st.session_state.nav_history = history
+    with col2:
+        if st.button("Restart", key="nav_restart"):
+            init_nav_state(pathway)
+
+    if not next_ids:
+        st.success("Reached terminal node.")
+        return
+
+    st.write("Next step:")
+    for nid in next_ids:
+        label = nodes.get(nid, {}).get("label", nid)
+        if st.button(f"Go to: {label}", key=f"goto_{current_id}_{nid}"):
+            history = st.session_state.get("nav_history", [])
+            history.append(current_id)
+            st.session_state.nav_history = history
+            st.session_state.nav_current = nid
+
+
+def main() -> None:
     st.title("Pediatric Infectious Pathway Router")
 
     age_mode = st.radio("Age Input", ["days", "years/months/days"], horizontal=True)
@@ -121,10 +179,7 @@ def page_router() -> None:
     immunocompromised_or_onc = st.checkbox("Immunocompromised or oncology patient", value=False)
 
     st.subheader("System Findings")
-    neuro = st.multiselect(
-        "Neuro",
-        ["seizure", "neck_stiffness", "severe_headache"],
-    )
+    neuro = st.multiselect("Neuro", ["seizure", "neck_stiffness", "severe_headache"])
     resp = st.multiselect("Respiratory", ["influenza_like_illness", "hypoxia", "respiratory_distress"])
     ent = st.multiselect("HEENT", ["eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus"])
     gi = st.multiselect("GI", ["vomiting", "diarrhea", "severe_focal_abdominal_pain"])
@@ -137,9 +192,9 @@ def page_router() -> None:
     uticalc_payload: Dict[str, Any] = {}
     uticalc_allowed = 2 <= age_months <= 24
     if uticalc_allowed:
-        st.subheader("UTICalc (Race-Free Pretest, 2-24 months)")
+        st.subheader("UTI Embedded Assessment (2-24 months)")
         sex = st.radio("Sex", ["female", "male"], horizontal=True)
-        circumcised = None
+        circumcised: Optional[bool] = None
         if sex == "male":
             circumcised = st.checkbox("Circumcised", value=True)
         use_tmax_toggle = st.checkbox("Use fever >=39C toggle", value=False)
@@ -149,7 +204,8 @@ def page_router() -> None:
         else:
             tmax_c = float(st.number_input("Tmax C", min_value=35.0, max_value=43.0, value=38.5, step=0.1))
             tmax_ge_39 = None
-        other_source = st.checkbox("Other source present", value=False)
+        # Default True prevents auto-activating UTI on default 12-month profile.
+        other_source = st.checkbox("Other source present", value=True)
         uticalc_payload = {
             "sex": sex,
             "circumcised": circumcised,
@@ -157,8 +213,6 @@ def page_router() -> None:
             "tmax_c": tmax_c,
             "other_source": other_source,
         }
-    else:
-        st.info("UTICalc panel appears only for age 2-24 months.")
 
     patient = {
         "age_days": age_days,
@@ -174,56 +228,38 @@ def page_router() -> None:
     }
 
     all_flags = [
-        "seizure",
-        "neck_stiffness",
-        "severe_headache",
-        "influenza_like_illness",
-        "hypoxia",
-        "respiratory_distress",
-        "eye_swelling",
-        "periorbital_erythema",
-        "pain_with_eom",
-        "drooling",
-        "muffled_voice",
-        "trismus",
-        "vomiting",
-        "diarrhea",
-        "severe_focal_abdominal_pain",
-        "dysuria",
-        "flank_pain",
-        "fever_without_source",
-        "joint_pain",
-        "limp",
-        "refusal_to_bear_weight",
-        "localized_erythema",
-        "warmth_or_tenderness",
-        "fluctuance_or_purulence",
-        "localized_swelling",
+        "seizure", "neck_stiffness", "severe_headache", "influenza_like_illness", "hypoxia", "respiratory_distress",
+        "eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus",
+        "vomiting", "diarrhea", "severe_focal_abdominal_pain", "dysuria", "flank_pain", "fever_without_source",
+        "joint_pain", "limp", "refusal_to_bear_weight", "localized_erythema", "warmth_or_tenderness",
+        "fluctuance_or_purulence", "localized_swelling",
     ]
     for flag in all_flags:
         patient[flag] = False
     for flag in neuro + resp + ent + gi + gu + msk + skin:
         patient[flag] = True
 
-    run_now = st.button("Run Full Parallel Differential", type="primary")
-    if run_now or "router_result" not in st.session_state:
-        st.session_state.router_result = route_patient(patient)
-        st.session_state.router_input = patient
-
-    result = st.session_state.get("router_result", {"pathways": []})
-
-    if result.get("uticalc_pretest_percent") is not None:
-        st.caption(f"UTICalc pretest: {result['uticalc_pretest_percent']:.2f}%")
-
+    # Real-time update on every rerun.
+    result = route_patient(patient)
     source_catalog = load_source_catalog()
+
     differential_items: List[Dict[str, Any]] = result.get("pathways", [])
+    uti_item = next((p for p in differential_items if p.get("id") == "uti"), None)
+    if uticalc_allowed and result.get("uticalc_pretest_percent") is not None:
+        uti_text = f"UTICalc pretest: {result['uticalc_pretest_percent']:.2f}%"
+        if uti_item and uti_item.get("status") == "ACTIVE":
+            uti_text += " -> UTI considered (embedded)"
+        st.caption(uti_text)
+
+    # UTI is intentionally embedded/hidden from explicit differential cards.
+    visible_items = [p for p in differential_items if p.get("id") != "uti"]
 
     st.subheader("Differential To Consider")
     with st.container(border=True):
-        if not differential_items:
+        if not visible_items:
             st.write("No differential items generated yet.")
         else:
-            for item in differential_items:
+            for item in visible_items:
                 src = source_catalog.get(item["id"])
                 status_line = f"{item['priority']} | {item['status']}"
                 if src:
@@ -234,7 +270,7 @@ def page_router() -> None:
     st.subheader("Recommendations (Scraped From Relevant CHOP Pathways)")
     with st.container(border=True):
         chop_items = []
-        for item in differential_items:
+        for item in visible_items:
             src = source_catalog.get(item["id"])
             if src and src.get("publisher") == "chop" and "chop.edu" in src.get("url", ""):
                 chop_items.append((item, src))
@@ -242,11 +278,11 @@ def page_router() -> None:
         if not chop_items:
             st.write("No relevant CHOP pathways in the current differential.")
         else:
-            shown = set()
+            shown_urls = set()
             for item, src in chop_items:
-                if src["url"] in shown:
+                if src["url"] in shown_urls:
                     continue
-                shown.add(src["url"])
+                shown_urls.add(src["url"])
 
                 st.markdown(f"**{item['name']}**")
                 st.markdown(f"[Open CHOP Pathway]({src['url']})")
@@ -261,84 +297,22 @@ def page_router() -> None:
                 for rec in recs:
                     st.markdown(f"- {rec}")
 
+    st.subheader("Pathway Navigator (Live)")
+    with st.container(border=True):
+        candidate_ids = [item["id"] for item in visible_items if (PATHWAYS_DIR / f"{item['id']}.yaml").exists()]
+        if not candidate_ids:
+            st.write("No navigable pathway available for current selections.")
+        else:
+            if st.session_state.get("nav_selected_pathway") not in candidate_ids:
+                st.session_state.nav_selected_pathway = candidate_ids[0]
 
-def page_navigator() -> None:
-    st.title("Pathway Navigator")
-
-    selected = st.session_state.get("selected_pathway")
-    if not selected:
-        st.info("No pathway selected. Open one from Router page.")
-        return
-
-    pathway = load_pathway(selected)
-    if not pathway:
-        st.error(f"Could not load pathway YAML for: {selected}")
-        return
-
-    if st.session_state.get("nav_pathway") != selected or "nav_current" not in st.session_state:
-        init_nav_state(pathway)
-        st.session_state.nav_pathway = selected
-
-    nodes = {n["id"]: n for n in pathway.get("nodes", [])}
-    current_id = st.session_state.get("nav_current")
-    current = nodes.get(current_id)
-
-    st.write(f"**{pathway.get('title', selected)}** (`{selected}`)")
-    if not current:
-        st.error("Current node not found.")
-        return
-
-    st.write(f"Node: `{current['id']}` ({current.get('type', 'unknown')})")
-    st.write(current.get("text", ""))
-    sources = current.get("source_urls", [])
-    if sources:
-        st.write("Sources:")
-        for src in sources:
-            st.markdown(f"- {src}")
-
-    edges = pathway.get("edges", [])
-    next_ids = [e["to"] for e in edges if e.get("from") == current_id]
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Back"):
-            history = st.session_state.get("nav_history", [])
-            if history:
-                st.session_state.nav_current = history.pop()
-                st.session_state.nav_history = history
-    with col2:
-        if st.button("Restart"):
-            init_nav_state(pathway)
-    with col3:
-        if st.button("Router"):
-            st.session_state.page = "Router"
-
-    if not next_ids:
-        st.success("Reached terminal node.")
-        return
-
-    st.write("Next:")
-    for nid in next_ids:
-        label = nodes.get(nid, {}).get("label", nid)
-        if st.button(f"Go to: {label}", key=f"goto_{current_id}_{nid}"):
-            history = st.session_state.get("nav_history", [])
-            history.append(current_id)
-            st.session_state.nav_history = history
-            st.session_state.nav_current = nid
-
-
-def main() -> None:
-    if "page" not in st.session_state:
-        st.session_state.page = "Router"
-
-    st.sidebar.title("Navigation")
-    selected_page = st.sidebar.radio("Page", ["Router", "Pathway Navigator"], index=0 if st.session_state.page == "Router" else 1)
-    st.session_state.page = selected_page
-
-    if selected_page == "Router":
-        page_router()
-    else:
-        page_navigator()
+            selected_id = st.selectbox(
+                "Selected pathway",
+                candidate_ids,
+                index=candidate_ids.index(st.session_state.nav_selected_pathway),
+                key="nav_selected_pathway",
+            )
+            render_navigator(selected_id)
 
 
 if __name__ == "__main__":
