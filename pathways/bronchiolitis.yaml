@@ -3,37 +3,182 @@ title: Bronchiolitis
 source_urls:
   - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
 tags:
-  - stub
-  - needs_algorithm_extraction
+  - chop
+  - bronchiolitis
+  - emergency
 nodes:
   - id: start
     type: info
     label: Start
-    text: Stub pathway start.
+    text: Begin bronchiolitis management pathway evaluation.
     source_urls:
       - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
-  - id: algorithm_stub
+
+  - id: population_check
+    type: decision
+    label: Population Eligibility
+    text: |
+      Apply pathway for pediatric patients 0-2 years old with viral URI and cough plus lower respiratory tract findings:
+      - Increased work of breathing
+      - Tachypnea for age
+      - Wheezing
+      - Coarse rales
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: exclusion_check
+    type: decision
+    label: Exclusion Criteria Present?
+    text: |
+      Off pathway if any are present:
+      - Known cardiac disease
+      - Significant lung disease (baseline meds or O2)
+      - Airway defects or anomalies
+      - Immunodeficiency
+      - Complex chronic medical condition
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: off_pathway_exclusion
     type: info
-    label: Algorithm Stub
-    text: Algorithm steps are intentionally not populated yet.
+    label: Off Pathway
+    text: Exclusion criteria present. Off bronchiolitis pathway.
     source_urls:
       - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
-  - id: definitions_stub
+
+  - id: extremis_check
+    type: decision
+    label: Patient In Extremis?
+    text: If patient is in extremis, off pathway and redirect to critical care pathway.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: off_pathway_critical
     type: info
-    label: Definitions Stub
-    text: Definitions and criteria pending curation from source pathway.
+    label: Off Pathway - Critical Care
+    text: Patient in extremis. Off bronchiolitis pathway; redirect to critical care pathway.
     source_urls:
       - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: initial_assessment_support
+    type: info
+    label: Initial Assessment and Support
+    text: |
+      Obtain:
+      - HR, RR, O2 saturation, rectal temperature, weight
+
+      Perform:
+      - Nasal suction with olive tip aspirator and saline
+      - Antipyretic if temperature >=38 C
+
+      Consider:
+      - PCR swabs for COVID, RSV, and/or influenza
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: reassessment
+    type: info
+    label: Reassessment
+    text: |
+      Reassess after initial support:
+      - Perform PO challenge
+      - Assess for high-risk criteria
+      - Determine if patient improved
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: improved_check
+    type: decision
+    label: Improved?
+    text: If improved, evaluate for discharge. If not improved, escalate care.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: escalation
+    type: info
+    label: Escalation
+    text: |
+      Escalate care:
+      - Start high-flow nasal cannula at 0.5-2 L/kg/min, 21-30% FiO2
+      - May increase FiO2 to maintain O2 saturation >=90% while awake
+      - If age >=12 months and concern for acute bronchospasm, may consider albuterol trial
+      - Call inpatient pediatrics attending to discuss admission vs transfer
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: discharge_criteria
+    type: decision
+    label: Discharge Criteria Met?
+    text: |
+      Discharge criteria:
+      - Close follow-up in place
+      - O2 saturation >90% while awake
+      - Adequate PO intake
+      - RR <60 while calm
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: discharge_home
+    type: info
+    label: Discharge
+    text: Discharge home with follow-up and discharge instructions.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
+  - id: admit_pediatrics
+    type: info
+    label: Admit to Pediatrics
+    text: Admit to Pediatrics if discharge criteria are not met.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
   - id: end
     type: end
     label: End
-    text: Stub pathway end.
+    text: End bronchiolitis pathway node flow.
     source_urls:
       - https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+
 edges:
   - from: start
-    to: algorithm_stub
-  - from: algorithm_stub
-    to: definitions_stub
-  - from: definitions_stub
+    to: population_check
+  - from: population_check
+    to: exclusion_check
+  - from: exclusion_check
+    to: off_pathway_exclusion
+    condition: yes
+  - from: exclusion_check
+    to: extremis_check
+    condition: no
+  - from: off_pathway_exclusion
+    to: end
+  - from: extremis_check
+    to: off_pathway_critical
+    condition: yes
+  - from: extremis_check
+    to: initial_assessment_support
+    condition: no
+  - from: off_pathway_critical
+    to: end
+  - from: initial_assessment_support
+    to: reassessment
+  - from: reassessment
+    to: improved_check
+  - from: improved_check
+    to: discharge_criteria
+    condition: improved
+  - from: improved_check
+    to: escalation
+    condition: not_improved
+  - from: escalation
+    to: admit_pediatrics
+  - from: discharge_criteria
+    to: discharge_home
+    condition: yes
+  - from: discharge_criteria
+    to: admit_pediatrics
+    condition: no
+  - from: discharge_home
+    to: end
+  - from: admit_pediatrics
     to: end

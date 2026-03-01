@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from logic.uticalc_pretest import uticalc_pretest_percent
+from logic.centor import compute_centor_score
 from yaml_compat import safe_load
 
 
@@ -109,9 +110,25 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     activations: Dict[str, Activation] = {}
     notes: List[Dict[str, str]] = []
     rule_trace: List[Dict[str, Any]] = []
+    note_ids: set[str] = set()
 
     def trace(rule_id: str, fired: bool, details: str) -> None:
         rule_trace.append({"rule_id": rule_id, "fired": fired, "details": details})
+
+    def add_note(note_id: str, name: str, reason: str, priority: str = "NORMAL", status: str = "CONSIDER") -> None:
+        if note_id in note_ids:
+            return
+        note_ids.add(note_id)
+        notes.append(
+            {
+                "id": note_id,
+                "name": name,
+                "status": status,
+                "priority": priority,
+                "reason": reason,
+                "source": "note",
+            }
+        )
 
     age_days = int(patient.get("age_days", 0))
     age_months = patient.get("age_months")
@@ -247,6 +264,139 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("ili_rule", False, "No influenza-like illness")
 
+    centor_input_trigger = bool(patient.get("sore_throat")) or str(patient.get("primary_system", "")).upper() == "ENT"
+    if centor_input_trigger:
+        age_years = age_days / 365.0
+        centor = compute_centor_score(
+            age_years=age_years,
+            tonsillar_exudate_or_swelling=bool(patient.get("centor_exudate_or_swelling")),
+            tender_anterior_cervical_nodes=bool(patient.get("centor_tender_anterior_cervical_nodes")),
+            fever_gt_38=bool(patient.get("centor_fever_gt_38")),
+            cough_absent=bool(patient.get("centor_cough_absent")),
+        )
+        score = int(centor["score"])
+        breakdown = centor["breakdown"]
+        breakdown_string = (
+            f"Age({breakdown[0]['points']:+d}) "
+            f"Fever({breakdown[3]['points']:+d}) "
+            f"Nodes({breakdown[2]['points']:+d}) "
+            f"Cough absent({breakdown[4]['points']:+d}) "
+            f"Exudate({breakdown[1]['points']:+d})"
+        )
+        if score >= 2:
+            p = by_id["pharyngitis"]
+            _register(
+                activations,
+                pathway_id="pharyngitis",
+                name=p["title"],
+                status="ACTIVE",
+                priority="NORMAL",
+                reason=f"Centor score {score} (>=2): consider strep testing; Centor breakdown: {breakdown_string}",
+                source="chop",
+            )
+            trace("pharyngitis_rule", True, f"Centor score {score} >=2")
+        else:
+            trace("pharyngitis_rule", False, f"Centor score {score} <=1; no auto-activation")
+    else:
+        trace("pharyngitis_rule", False, "Centor module not triggered")
+
+    # Rash pattern differential module (independent of CHOP pathways except explicit ties).
+    rash_pattern = patient.get("rash_pattern")
+    rash_distribution = patient.get("rash_distribution")
+    if rash_pattern in {"scaly", "maculopapular", "vesicular"}:
+        if rash_pattern == "scaly":
+            if patient.get("herald_patch_christmas_tree"):
+                add_note(
+                    "pityriasis_rosea",
+                    "Pityriasis Rosea",
+                    "Scaly rash with localized herald patch followed by Christmas tree distribution (supportive care).",
+                )
+            if patient.get("sandpaper_rash_after_strep"):
+                add_note(
+                    "scarlet_fever",
+                    "Scarlet Fever",
+                    "Diffuse sandpaper-like rash after strep pharyngitis.",
+                )
+                p = by_id["pharyngitis"]
+                _register(
+                    activations,
+                    pathway_id="pharyngitis",
+                    name=p["title"],
+                    status="ACTIVE",
+                    priority="NORMAL",
+                    reason="Activated because scarlet fever pattern implies strep pharyngitis",
+                    source="chop",
+                )
+            trace("rash_scaly_module", True, "Scaly branch evaluated")
+
+        if rash_pattern == "maculopapular":
+            if rash_distribution == "no_set_pattern":
+                if (
+                    bool(patient.get("high_fever"))
+                    and bool(patient.get("conjunctivitis"))
+                    and bool(patient.get("strawberry_tongue"))
+                    and bool(patient.get("fissured_lips"))
+                ):
+                    p = by_id["kawasaki"]
+                    _register(
+                        activations,
+                        pathway_id="kawasaki",
+                        name=p["title"],
+                        status="ACTIVE",
+                        priority="HIGH",
+                        reason="Activated because maculopapular no-set-pattern rash with high fever + conjunctivitis + strawberry tongue + fissured lips",
+                        source="chop",
+                    )
+                else:
+                    add_note(
+                        "other_viral_exanthem",
+                        "Other Viral Exanthem",
+                        "Maculopapular rash with no set pattern and no Kawasaki feature cluster.",
+                    )
+            elif rash_distribution == "trunk_to_face_extremities":
+                if bool(patient.get("high_fever_3_4_days_before_rash")):
+                    add_note(
+                        "roseola",
+                        "Roseola",
+                        "Maculopapular rash spreading trunk to face/extremities with high fever (>104F) for 3-4 days before rash.",
+                    )
+            elif rash_distribution == "head_to_toes":
+                if bool(patient.get("posterior_auricular_lymphadenopathy")):
+                    add_note(
+                        "rubella",
+                        "Rubella",
+                        "Head-to-toe maculopapular rash with posterior auricular lymphadenopathy.",
+                    )
+                if bool(patient.get("slapped_cheek")):
+                    add_note(
+                        "erythema_infectiosum",
+                        "Erythema Infectiosum",
+                        "Head-to-toe maculopapular pattern with slapped-cheek appearance.",
+                    )
+                if (
+                    bool(patient.get("cough"))
+                    and bool(patient.get("coryza"))
+                    and bool(patient.get("conjunctivitis"))
+                    and bool(patient.get("koplik_spots"))
+                ):
+                    add_note(
+                        "measles",
+                        "Measles",
+                        "Head-to-toe rash with 4 C's (cough, coryza, conjunctivitis, Koplik spots).",
+                        priority="HIGH",
+                    )
+            trace("rash_maculopapular_module", True, f"Maculopapular branch evaluated ({rash_distribution or 'no_distribution'})")
+
+        if rash_pattern == "vesicular":
+            add_note(
+                "vesicular_lesions_algorithm",
+                "See Vesicular Lesions Algorithm",
+                "Vesicular rash pattern identified; refer to vesicular lesions algorithm.",
+            )
+            trace("rash_vesicular_module", True, "Vesicular placeholder added")
+    else:
+        trace("rash_module", False, "No rash pattern selected")
+
     # Respiratory pathway support so distressing respiratory presentations surface core airway/lung pathways.
     if patient.get("respiratory_distress") or patient.get("hypoxia") or (patient.get("cough") and patient.get("wheeze")):
         p = by_id["bronchiolitis"]
@@ -367,9 +517,14 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("osteomyelitis_rule", False, "No osteomyelitis trigger")
 
-    if age_days >= int(spec["age_cutoffs"]["kawasaki_min_days"]) and int(patient.get("fever_days", 0)) >= 5:
-        kd_features = int(patient.get("kd_features", 0))
-        p = by_id["kawasaki"]
+    kd_features = int(patient.get("kd_features", 0))
+    fever_days = int(patient.get("fever_days", 0))
+    p = by_id["kawasaki"]
+    kawasaki_triggered = False
+    kawasaki_reasons: List[str] = []
+
+    # Existing higher-confidence activation logic.
+    if age_days >= int(spec["age_cutoffs"]["kawasaki_min_days"]) and fever_days >= 5:
         if kd_features >= 4:
             _register(
                 activations,
@@ -380,7 +535,8 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Activated because age>=60d, fever>=5d, KD features >=4",
                 source="chop",
             )
-            trace("kawasaki_rule", True, "ACTIVE (KD features >=4)")
+            kawasaki_triggered = True
+            kawasaki_reasons.append("ACTIVE (KD features >=4)")
         elif 2 <= kd_features <= 3:
             _register(
                 activations,
@@ -391,11 +547,42 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Consider incomplete Kawasaki because age>=60d, fever>=5d, KD features 2-3",
                 source="chop",
             )
-            trace("kawasaki_rule", True, "CONSIDER (KD features 2-3)")
-        else:
-            trace("kawasaki_rule", False, "Criteria window met but KD features <2")
+            kawasaki_triggered = True
+            kawasaki_reasons.append("CONSIDER (KD features 2-3)")
+
+    # New consider criteria:
+    # 1) >=3 days fever + any principal KD feature
+    if fever_days >= 3 and kd_features >= 1:
+        _register(
+            activations,
+            pathway_id="kawasaki",
+            name=p["title"],
+            status="CONSIDER",
+            priority="NORMAL",
+            reason="Consider KD: fever >=3 days with at least one principal KD feature",
+            source="chop",
+        )
+        kawasaki_triggered = True
+        kawasaki_reasons.append("CONSIDER (fever>=3d + any principal KD feature)")
+
+    # 2) Infants <=6 months with >=7 days unexplained fever
+    if age_days <= (6 * 30.4375) and fever_days >= 7 and bool(patient.get("fever_without_source")):
+        _register(
+            activations,
+            pathway_id="kawasaki",
+            name=p["title"],
+            status="CONSIDER",
+            priority="NORMAL",
+            reason="Consider KD: infant <=6 months with >=7 days unexplained fever",
+            source="chop",
+        )
+        kawasaki_triggered = True
+        kawasaki_reasons.append("CONSIDER (infant<=6mo + >=7d unexplained fever)")
+
+    if kawasaki_triggered:
+        trace("kawasaki_rule", True, "; ".join(kawasaki_reasons))
     else:
-        trace("kawasaki_rule", False, "Requires age>=60d and fever_days>=5")
+        trace("kawasaki_rule", False, "No Kawasaki activation/consider criteria met")
 
     if patient.get("dysuria") or patient.get("flank_pain") or patient.get("fever_without_source"):
         p = by_id["uti"]
