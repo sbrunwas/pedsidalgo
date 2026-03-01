@@ -4,6 +4,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import streamlit as st
+import re
+
+try:
+    import requests
+    from bs4 import BeautifulSoup
+except Exception:  # pragma: no cover
+    requests = None
+    BeautifulSoup = None
 
 from logic.router import route_patient
 from yaml_compat import safe_load
@@ -30,6 +38,45 @@ def load_source_catalog() -> Dict[str, Dict[str, Any]]:
     data = safe_load(SOURCES_PATH.read_text()) or {}
     pathways = data.get("pathways", [])
     return {p["id"]: p for p in pathways if "id" in p}
+
+
+def _clean_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def scrape_chop_recommendations(url: str) -> Dict[str, Any]:
+    if requests is None or BeautifulSoup is None:
+        return {"ok": False, "recommendations": [], "error": "requests/bs4 not installed"}
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+    except Exception as exc:
+        return {"ok": False, "recommendations": [], "error": str(exc)}
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.extract()
+
+    recs: List[str] = []
+    for li in soup.find_all("li"):
+        txt = _clean_text(li.get_text(" ", strip=True))
+        if len(txt) >= 40 and txt not in recs:
+            recs.append(txt)
+        if len(recs) >= 6:
+            break
+
+    if not recs:
+        paragraphs = []
+        for p in soup.find_all("p"):
+            txt = _clean_text(p.get_text(" ", strip=True))
+            if len(txt) >= 60:
+                paragraphs.append(txt)
+            if len(paragraphs) >= 4:
+                break
+        recs = paragraphs
+
+    return {"ok": True, "recommendations": recs[:6], "error": None}
 
 
 def init_nav_state(pathway: Dict[str, Any]) -> None:
@@ -168,66 +215,51 @@ def page_router() -> None:
     if result.get("uticalc_pretest_percent") is not None:
         st.caption(f"UTICalc pretest: {result['uticalc_pretest_percent']:.2f}%")
 
-    st.subheader("Parallel Differential")
-    priorities = ["CRITICAL", "HIGH", "NORMAL"]
-    pathways: List[Dict[str, Any]] = result.get("pathways", [])
-    active = [p for p in pathways if p["status"] == "ACTIVE"]
-    consider = [p for p in pathways if p["status"] == "CONSIDER"]
-    st.caption(f"Active: {len(active)} | Consider: {len(consider)}")
-
-    tab_active, tab_consider = st.tabs(["ACTIVE", "CONSIDER"])
     source_catalog = load_source_catalog()
+    differential_items: List[Dict[str, Any]] = result.get("pathways", [])
 
-    def render_cards(items: List[Dict[str, Any]], tab_key: str) -> None:
-        for priority in priorities:
-            group = [p for p in items if p["priority"] == priority]
-            if not group:
-                continue
-            st.markdown(f"### {priority}")
-            for item in group:
-                with st.container(border=True):
-                    st.write(f"**{item['name']}**")
-                    st.write(f"Status: `{item['status']}`")
-                    st.write(f"Activated because: {item['reason']}")
-                    source_entry = source_catalog.get(item["id"])
-                    if source_entry:
-                        source_label = "CHOP Pathway" if source_entry.get("publisher") == "chop" else "Source Pathway"
-                        st.write(f"{source_label}: {source_entry.get('title', item['name'])}")
-                        st.link_button("Open Source Pathway", source_entry["url"], key=f"src_{tab_key}_{priority}_{item['id']}")
-                        st.caption(source_entry["url"])
-                    else:
-                        st.caption("No external source link available for this recommendation.")
+    st.subheader("Differential To Consider")
+    with st.container(border=True):
+        if not differential_items:
+            st.write("No differential items generated yet.")
+        else:
+            for item in differential_items:
+                src = source_catalog.get(item["id"])
+                status_line = f"{item['priority']} | {item['status']}"
+                if src:
+                    st.markdown(f"- **{item['name']}** ({status_line}) - [Pathway Link]({src['url']})")
+                else:
+                    st.markdown(f"- **{item['name']}** ({status_line})")
 
-                    helpful_bits = [
-                        f"Pathway ID: `{item['id']}`",
-                        f"Priority: `{item['priority']}`",
-                        f"Recommendation: `{item['status']}`",
-                    ]
-                    if source_entry:
-                        helpful_bits.append(f"Publisher: `{source_entry.get('publisher', 'unknown')}`")
-                    if item["id"] == "uti" and result.get("uticalc_pretest_percent") is not None:
-                        helpful_bits.append(f"UTICalc pretest: `{result['uticalc_pretest_percent']:.2f}%`")
-                    forced = [k for k, v in result.get("critical_flags", {}).items() if v]
-                    if forced:
-                        helpful_bits.append("Critical flags present: " + ", ".join(f"`{f}`" for f in forced))
-                    st.caption(" | ".join(helpful_bits))
+    st.subheader("Recommendations (Scraped From Relevant CHOP Pathways)")
+    with st.container(border=True):
+        chop_items = []
+        for item in differential_items:
+            src = source_catalog.get(item["id"])
+            if src and src.get("publisher") == "chop" and "chop.edu" in src.get("url", ""):
+                chop_items.append((item, src))
 
-                    if (PATHWAYS_DIR / f"{item['id']}.yaml").exists():
-                        if st.button(f"Open Pathway: {item['id']}", key=f"open_{tab_key}_{priority}_{item['id']}"):
-                            st.session_state.selected_pathway = item["id"]
-                            st.session_state.page = "Pathway Navigator"
-                    else:
-                        st.caption("No pathway YAML available for this note card.")
+        if not chop_items:
+            st.write("No relevant CHOP pathways in the current differential.")
+        else:
+            shown = set()
+            for item, src in chop_items:
+                if src["url"] in shown:
+                    continue
+                shown.add(src["url"])
 
-    with tab_active:
-        render_cards(active, "active")
-    with tab_consider:
-        render_cards(consider, "consider")
-
-    with st.expander("Rule Evaluation Trace", expanded=False):
-        for row in result.get("rule_trace", []):
-            state = "FIRED" if row.get("fired") else "NO"
-            st.write(f"- {row.get('rule_id')}: {state} | {row.get('details')}")
+                st.markdown(f"**{item['name']}**")
+                st.markdown(f"[Open CHOP Pathway]({src['url']})")
+                scraped = scrape_chop_recommendations(src["url"])
+                if not scraped["ok"]:
+                    st.caption(f"Could not scrape recommendations: {scraped['error']}")
+                    continue
+                recs = scraped.get("recommendations", [])
+                if not recs:
+                    st.caption("No recommendation snippets were detected on this page.")
+                    continue
+                for rec in recs:
+                    st.markdown(f"- {rec}")
 
 
 def page_navigator() -> None:
