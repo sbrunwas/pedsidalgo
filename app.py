@@ -11,6 +11,7 @@ from yaml_compat import safe_load
 
 ROOT = Path(__file__).resolve().parent
 PATHWAYS_DIR = ROOT / "pathways"
+SOURCES_PATH = ROOT / "source" / "sources.yaml"
 
 
 def age_months_from_days(age_days: int) -> float:
@@ -22,6 +23,13 @@ def load_pathway(pathway_id: str) -> Dict[str, Any]:
     if not path.exists():
         return {}
     return safe_load(path.read_text()) or {}
+
+
+@st.cache_data
+def load_source_catalog() -> Dict[str, Dict[str, Any]]:
+    data = safe_load(SOURCES_PATH.read_text()) or {}
+    pathways = data.get("pathways", [])
+    return {p["id"]: p for p in pathways if "id" in p}
 
 
 def init_nav_state(pathway: Dict[str, Any]) -> None:
@@ -168,6 +176,7 @@ def page_router() -> None:
     st.caption(f"Active: {len(active)} | Consider: {len(consider)}")
 
     tab_active, tab_consider = st.tabs(["ACTIVE", "CONSIDER"])
+    source_catalog = load_source_catalog()
 
     def render_cards(items: List[Dict[str, Any]], tab_key: str) -> None:
         for priority in priorities:
@@ -180,6 +189,27 @@ def page_router() -> None:
                     st.write(f"**{item['name']}**")
                     st.write(f"Status: `{item['status']}`")
                     st.write(f"Activated because: {item['reason']}")
+                    source_entry = source_catalog.get(item["id"])
+                    if source_entry:
+                        source_label = "CHOP Pathway" if source_entry.get("publisher") == "chop" else "Source Pathway"
+                        st.markdown(f"{source_label}: [{source_entry.get('title', item['name'])}]({source_entry['url']})")
+                    else:
+                        st.caption("No external source link available for this recommendation.")
+
+                    helpful_bits = [
+                        f"Pathway ID: `{item['id']}`",
+                        f"Priority: `{item['priority']}`",
+                        f"Recommendation: `{item['status']}`",
+                    ]
+                    if source_entry:
+                        helpful_bits.append(f"Publisher: `{source_entry.get('publisher', 'unknown')}`")
+                    if item["id"] == "uti" and result.get("uticalc_pretest_percent") is not None:
+                        helpful_bits.append(f"UTICalc pretest: `{result['uticalc_pretest_percent']:.2f}%`")
+                    forced = [k for k, v in result.get("critical_flags", {}).items() if v]
+                    if forced:
+                        helpful_bits.append("Critical flags present: " + ", ".join(f"`{f}`" for f in forced))
+                    st.caption(" | ".join(helpful_bits))
+
                     if (PATHWAYS_DIR / f"{item['id']}.yaml").exists():
                         if st.button(f"Open Pathway: {item['id']}", key=f"open_{tab_key}_{priority}_{item['id']}"):
                             st.session_state.selected_pathway = item["id"]
