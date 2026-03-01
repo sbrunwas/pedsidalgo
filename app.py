@@ -637,5 +637,34 @@ def main() -> None:
                 else:
                     st.markdown(f"- **{item['name']}** ({status_line})")
 
+    assessment = generate_assessment(
+        age_months=int(round(age_months)),
+        fever_days=fever_days,
+        symptoms=findings,
+        exam=[],
+        high_risk=immunocompromised_or_onc,
+        toxic=ill_appearing,
+        unstable=hemodynamic_instability,
+        fever_without_source=bool(patient.get("fever_without_source")),
+    )
+
+    st.subheader("Next Steps To Consider")
+    with st.container(border=True):
+        step_items: List[str] = []
+        for entry in assessment.get("recommended_workup", []):
+            step_items.append(f"Testing/Imaging: {entry}")
+        for entry in assessment.get("recommended_initial_management", []):
+            step_items.append(f"Supportive Care/Treatment: {entry}")
+        for entry in assessment.get("consults", []):
+            step_items.append(f"Consults: {entry}")
+        for entry in assessment.get("admit_considerations", []):
+            step_items.append(f"Disposition: {entry}")
+
+        if not step_items:
+            st.write("No specific next-step suggestions generated for this input set.")
+        else:
+            for item in step_items:
+                st.markdown(f"- {item}")
+
 if __name__ == "__main__":
     main()
