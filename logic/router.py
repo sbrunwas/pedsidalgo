@@ -264,7 +264,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("ili_rule", False, "No influenza-like illness")
 
-    centor_input_trigger = bool(patient.get("sore_throat")) or str(patient.get("primary_system", "")).upper() == "ENT"
+    centor_input_trigger = bool(patient.get("sore_throat"))
     if centor_input_trigger:
         age_years = age_days / 365.0
         centor = compute_centor_score(
@@ -518,6 +518,16 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         trace("osteomyelitis_rule", False, "No osteomyelitis trigger")
 
     kd_features = int(patient.get("kd_features", 0))
+    kd_principal_from_flags = sum(
+        [
+            bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis")),
+            bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes")),
+            bool(patient.get("kd_rash") or patient.get("rash_pattern")),
+            bool(patient.get("kd_extremity_changes")),
+            bool(patient.get("kd_cervical_lymphadenopathy")),
+        ]
+    )
+    kd_features = max(kd_features, kd_principal_from_flags)
     fever_days = int(patient.get("fever_days", 0))
     p = by_id["kawasaki"]
     kawasaki_triggered = False

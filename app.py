@@ -524,11 +524,6 @@ def main() -> None:
         circumcised: Optional[bool] = None
         if sex == "male":
             circumcised = st.checkbox("Circumcised", value=True)
-    primary_system = st.selectbox(
-        "Primary System",
-        ["General", "ENT", "Respiratory", "GI", "GU", "MSK", "Skin", "Neuro"],
-        index=0,
-    )
 
     ga_weeks = None
     if age_days < 60:
@@ -625,8 +620,7 @@ def main() -> None:
     selected_labels = st.multiselect("Select findings", finding_labels)
     selected_keys = [findings_map[label] for label in selected_labels]
     sore_throat_selected = "sore_throat" in selected_keys
-
-    st.subheader("Rash Pattern Differential Module")
+    st.caption("Rash pattern and distribution are part of clinical findings.")
     rash_pattern_label = st.selectbox(
         "Rash Pattern",
         ["None", "Scaly", "Maculopapular", "Vesicular"],
@@ -665,21 +659,13 @@ def main() -> None:
             "Slapped Cheek",
         ]
     selected_rash_features = st.multiselect("Rash Features", rash_feature_options)
-    kd_flag_set = {
-        "kd_conjunctivitis",
-        "kd_oral_changes",
-        "kd_rash",
-        "kd_extremity_changes",
-        "kd_cervical_lymphadenopathy",
-    }
-    kd_features = len([f for f in selected_keys if f in kd_flag_set])
+    kd_features = 0
 
     patient = {
         "age_days": age_days,
         "age_months": age_months,
         "ga_weeks": ga_weeks,
         "fever_days": fever_days,
-        "primary_system": primary_system,
         "immunization_status": immunization_status,
         "ill_appearing": ill_appearing,
         "hemodynamic_instability": hemodynamic_instability,
@@ -716,7 +702,16 @@ def main() -> None:
     patient["slapped_cheek"] = "Slapped Cheek" in selected_rash_features
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
-    show_centor_module = sore_throat_selected or primary_system == "ENT"
+    # Robust KD principal-feature counting to support fever+feature consideration logic.
+    kd_conjunctivitis = bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis"))
+    kd_oral_changes = bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes"))
+    kd_rash = bool(patient.get("kd_rash") or rash_pattern is not None)
+    kd_extremity = bool(patient.get("kd_extremity_changes"))
+    kd_nodes = bool(patient.get("kd_cervical_lymphadenopathy"))
+    kd_features = sum([kd_conjunctivitis, kd_oral_changes, kd_rash, kd_extremity, kd_nodes])
+    patient["kd_features"] = kd_features
+
+    show_centor_module = sore_throat_selected
     centor_result: Optional[Dict[str, object]] = None
     if show_centor_module:
         st.subheader("Centor / McIsaac risk estimate")
