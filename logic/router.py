@@ -247,6 +247,52 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("ili_rule", False, "No influenza-like illness")
 
+    # Respiratory pathway support so distressing respiratory presentations surface core airway/lung pathways.
+    if patient.get("respiratory_distress") or patient.get("hypoxia") or (patient.get("cough") and patient.get("wheeze")):
+        p = by_id["bronchiolitis"]
+        _register(
+            activations,
+            pathway_id="bronchiolitis",
+            name=p["title"],
+            status="ACTIVE",
+            priority="HIGH" if (patient.get("respiratory_distress") or patient.get("hypoxia")) else "NORMAL",
+            reason="Activated because respiratory_distress OR hypoxia OR (cough and wheeze)",
+            source="chop",
+        )
+        trace("bronchiolitis_rule", True, "respiratory_distress OR hypoxia OR cough+wheeze")
+    else:
+        trace("bronchiolitis_rule", False, "No bronchiolitis trigger")
+
+    if patient.get("respiratory_distress") or patient.get("hypoxia") or patient.get("cough"):
+        p = by_id["pneumonia"]
+        _register(
+            activations,
+            pathway_id="pneumonia",
+            name=p["title"],
+            status="CONSIDER" if not patient.get("hypoxia") else "ACTIVE",
+            priority="HIGH" if patient.get("hypoxia") else "NORMAL",
+            reason="Activated/considered because respiratory distress, hypoxia, or cough",
+            source="chop",
+        )
+        trace("pneumonia_rule", True, "respiratory_distress OR hypoxia OR cough")
+    else:
+        trace("pneumonia_rule", False, "No pneumonia trigger")
+
+    if patient.get("stridor") or patient.get("barky_cough") or (patient.get("respiratory_distress") and age_days <= 6 * 365):
+        p = by_id["croup"]
+        _register(
+            activations,
+            pathway_id="croup",
+            name=p["title"],
+            status="ACTIVE" if (patient.get("stridor") or patient.get("barky_cough")) else "CONSIDER",
+            priority="HIGH" if patient.get("respiratory_distress") else "NORMAL",
+            reason="Activated/considered because stridor, barky cough, or respiratory distress in younger child",
+            source="chop",
+        )
+        trace("croup_rule", True, "stridor OR barky_cough OR respiratory_distress in younger child")
+    else:
+        trace("croup_rule", False, "No croup trigger")
+
     if patient.get("eye_swelling") or patient.get("periorbital_erythema"):
         p = by_id["orbital_preseptal_cellulitis"]
         pri = "HIGH" if (patient.get("eye_swelling") and patient.get("pain_with_eom")) else "NORMAL"
@@ -366,15 +412,18 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("uti_symptom_rule", False, "No UTI symptom trigger")
 
-    uticalc = patient.get("uticalc", {})
-    uticalc_risk = uticalc_pretest_percent(
-        age_months=age_months,
-        sex=uticalc.get("sex", "female"),
-        circumcised=uticalc.get("circumcised"),
-        other_source=bool(uticalc.get("other_source", False)),
-        tmax_ge_39=uticalc.get("tmax_ge_39"),
-        tmax_c=uticalc.get("tmax_c"),
-    )
+    uticalc = patient.get("uticalc")
+    uticalc_risk: Optional[float] = None
+    if isinstance(uticalc, dict) and uticalc:
+        uticalc_risk = uticalc_pretest_percent(
+            age_months=age_months,
+            sex=uticalc.get("sex", "female"),
+            circumcised=uticalc.get("circumcised"),
+            other_source=bool(uticalc.get("other_source", True)),
+            tmax_ge_39=uticalc.get("tmax_ge_39"),
+            tmax_c=uticalc.get("tmax_c"),
+        )
+
     if uticalc_risk is not None and uticalc_risk >= 2.0:
         p = by_id["uti"]
         _register(
@@ -387,6 +436,8 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             source="chop",
         )
         trace("uticalc_rule", True, f"UTICalc {uticalc_risk:.2f}% >= 2%")
+    elif uticalc is None or uticalc == {}:
+        trace("uticalc_rule", False, "UTICalc inputs not provided")
     elif uticalc_risk is None:
         trace("uticalc_rule", False, "Age outside 2-24 months")
     else:

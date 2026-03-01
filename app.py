@@ -544,6 +544,13 @@ def main() -> None:
 
     st.caption(f"Computed age_days: {age_days}")
     age_months = age_months_from_days(age_days)
+    sex_col, circ_col = st.columns(2)
+    with sex_col:
+        sex = st.radio("Sex", ["female", "male"], horizontal=True)
+    with circ_col:
+        circumcised: Optional[bool] = None
+        if sex == "male":
+            circumcised = st.checkbox("Circumcised", value=True)
 
     ga_weeks = None
     if age_days < 60:
@@ -555,6 +562,7 @@ def main() -> None:
         ill_infant = False
 
     fever_days = int(st.number_input("Fever duration (days)", min_value=0, max_value=30, value=1))
+    tmax_c = float(st.number_input("Tmax C", min_value=35.0, max_value=43.0, value=38.5, step=0.1))
     ill_appearing = st.checkbox("Ill appearing", value=ill_infant)
     hemodynamic_instability = st.checkbox("Hemodynamic instability", value=False)
     altered_mental_status = st.checkbox("Altered mental status", value=False)
@@ -562,39 +570,26 @@ def main() -> None:
 
     st.subheader("System Findings")
     neuro = st.multiselect("Neuro", ["seizure", "neck_stiffness", "severe_headache"])
-    resp = st.multiselect("Respiratory", ["influenza_like_illness", "hypoxia", "respiratory_distress"])
+    resp = st.multiselect(
+        "Respiratory",
+        ["influenza_like_illness", "hypoxia", "respiratory_distress", "cough", "wheeze", "stridor", "barky_cough"],
+    )
     ent = st.multiselect("HEENT", ["eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus"])
     gi = st.multiselect("GI", ["vomiting", "diarrhea", "severe_focal_abdominal_pain"])
     gu = st.multiselect("GU", ["dysuria", "flank_pain", "fever_without_source"])
     msk = st.multiselect("MSK", ["joint_pain", "limp", "refusal_to_bear_weight"])
     skin = st.multiselect("Skin", ["localized_erythema", "warmth_or_tenderness", "fluctuance_or_purulence", "localized_swelling"])
-
-    kd_features = int(st.slider("Kawasaki features count", min_value=0, max_value=5, value=0))
-
-    uticalc_payload: Dict[str, Any] = {}
-    uticalc_allowed = 2 <= age_months <= 24
-    if uticalc_allowed:
-        st.subheader("UTI Embedded Assessment (2-24 months)")
-        sex = st.radio("Sex", ["female", "male"], horizontal=True)
-        circumcised: Optional[bool] = None
-        if sex == "male":
-            circumcised = st.checkbox("Circumcised", value=True)
-        use_tmax_toggle = st.checkbox("Use fever >=39C toggle", value=False)
-        if use_tmax_toggle:
-            tmax_ge_39 = st.checkbox("Tmax >=39C", value=False)
-            tmax_c = None
-        else:
-            tmax_c = float(st.number_input("Tmax C", min_value=35.0, max_value=43.0, value=38.5, step=0.1))
-            tmax_ge_39 = None
-        # Default True prevents auto-activating UTI on default 12-month profile.
-        other_source = st.checkbox("Other source present", value=True)
-        uticalc_payload = {
-            "sex": sex,
-            "circumcised": circumcised,
-            "tmax_ge_39": tmax_ge_39,
-            "tmax_c": tmax_c,
-            "other_source": other_source,
-        }
+    kawasaki_features = st.multiselect(
+        "Kawasaki Features",
+        [
+            "kd_conjunctivitis",
+            "kd_oral_changes",
+            "kd_rash",
+            "kd_extremity_changes",
+            "kd_cervical_lymphadenopathy",
+        ],
+    )
+    kd_features = len(kawasaki_features)
 
     patient = {
         "age_days": age_days,
@@ -606,11 +601,18 @@ def main() -> None:
         "altered_mental_status": altered_mental_status,
         "immunocompromised_or_onc": immunocompromised_or_onc,
         "kd_features": kd_features,
-        "uticalc": uticalc_payload,
+        "uticalc": {
+            "sex": sex,
+            "circumcised": circumcised,
+            "tmax_ge_39": None,
+            "tmax_c": tmax_c,
+            "other_source": True,  # computed from feature selection below
+        },
     }
 
     all_flags = [
         "seizure", "neck_stiffness", "severe_headache", "influenza_like_illness", "hypoxia", "respiratory_distress",
+        "cough", "wheeze", "stridor", "barky_cough",
         "eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus",
         "vomiting", "diarrhea", "severe_focal_abdominal_pain", "dysuria", "flank_pain", "fever_without_source",
         "joint_pain", "limp", "refusal_to_bear_weight", "localized_erythema", "warmth_or_tenderness",
@@ -618,8 +620,9 @@ def main() -> None:
     ]
     for flag in all_flags:
         patient[flag] = False
-    for flag in neuro + resp + ent + gi + gu + msk + skin:
+    for flag in neuro + resp + ent + gi + gu + msk + skin + kawasaki_features:
         patient[flag] = True
+    patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
     # Real-time update on every rerun.
     result = route_patient(patient)
@@ -627,17 +630,17 @@ def main() -> None:
 
     differential_items: List[Dict[str, Any]] = result.get("pathways", [])
     uti_item = next((p for p in differential_items if p.get("id") == "uti"), None)
-    if uticalc_allowed and result.get("uticalc_pretest_percent") is not None:
-        uti_text = f"UTICalc pretest: {result['uticalc_pretest_percent']:.2f}%"
-        if uti_item and uti_item.get("status") == "ACTIVE":
-            uti_text += " -> UTI considered (embedded)"
-        st.caption(uti_text)
 
     # UTI is intentionally embedded/hidden from explicit differential cards.
     visible_items = [p for p in differential_items if p.get("id") != "uti"]
 
     st.subheader("Differential To Consider")
     with st.container(border=True):
+        if 2 <= age_months <= 24 and result.get("uticalc_pretest_percent") is not None:
+            uti_text = f"UTICalc pretest (embedded): {result['uticalc_pretest_percent']:.2f}%"
+            if uti_item and uti_item.get("status") == "ACTIVE":
+                uti_text += " -> UTI considered"
+            st.markdown(f"- **{uti_text}**")
         if not visible_items:
             st.write("No differential items generated yet.")
         else:
