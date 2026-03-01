@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 import streamlit as st
 
 from logic.router import route_patient
+from logic.uticalc_pretest import uticalc_pretest_percent
+from logic.centor import compute_centor_score
 from yaml_compat import safe_load
 
 
@@ -401,6 +403,22 @@ def age_months_from_days(age_days: int) -> float:
     return age_days / 30.4375
 
 
+def c_to_f(celsius: float) -> float:
+    return (celsius * 9.0 / 5.0) + 32.0
+
+
+def f_to_c(fahrenheit: float) -> float:
+    return (fahrenheit - 32.0) * 5.0 / 9.0
+
+
+def sync_tmax_from_c() -> None:
+    st.session_state["tmax_f"] = round(c_to_f(float(st.session_state["tmax_c"])), 1)
+
+
+def sync_tmax_from_f() -> None:
+    st.session_state["tmax_c"] = round(f_to_c(float(st.session_state["tmax_f"])), 1)
+
+
 @st.cache_data
 def load_source_catalog() -> Dict[str, Dict[str, Any]]:
     data = safe_load(SOURCES_PATH.read_text()) or {}
@@ -506,6 +524,11 @@ def main() -> None:
         circumcised: Optional[bool] = None
         if sex == "male":
             circumcised = st.checkbox("Circumcised", value=True)
+    primary_system = st.selectbox(
+        "Primary System",
+        ["General", "ENT", "Respiratory", "GI", "GU", "MSK", "Skin", "Neuro"],
+        index=0,
+    )
 
     ga_weeks = None
     if age_days < 60:
@@ -517,50 +540,131 @@ def main() -> None:
         ill_infant = False
 
     fever_days = int(st.number_input("Fever duration (days)", min_value=0, max_value=30, value=1))
-    tmax_c = float(st.number_input("Tmax C", min_value=35.0, max_value=43.0, value=38.5, step=0.1))
+    immunization_status = st.selectbox(
+        "Immunization Status",
+        ["Up To Date", "Underimmunized", "Unknown"],
+        index=0,
+    )
+    if "tmax_c" not in st.session_state and "tmax_f" not in st.session_state:
+        st.session_state["tmax_c"] = 38.5
+        st.session_state["tmax_f"] = round(c_to_f(38.5), 1)
+    elif "tmax_c" not in st.session_state and "tmax_f" in st.session_state:
+        st.session_state["tmax_c"] = round(f_to_c(float(st.session_state["tmax_f"])), 1)
+    elif "tmax_f" not in st.session_state and "tmax_c" in st.session_state:
+        st.session_state["tmax_f"] = round(c_to_f(float(st.session_state["tmax_c"])), 1)
+
+    tcol1, tcol2 = st.columns(2)
+    with tcol1:
+        st.number_input(
+            "Tmax (C)",
+            min_value=35.0,
+            max_value=43.0,
+            step=0.1,
+            key="tmax_c",
+            on_change=sync_tmax_from_c,
+        )
+    with tcol2:
+        st.number_input(
+            "Tmax (F)",
+            min_value=95.0,
+            max_value=109.4,
+            step=0.1,
+            key="tmax_f",
+            on_change=sync_tmax_from_f,
+        )
+    tmax_c = float(st.session_state["tmax_c"])
     ill_appearing = st.checkbox("Ill appearing", value=ill_infant)
     hemodynamic_instability = st.checkbox("Hemodynamic instability", value=False)
     altered_mental_status = st.checkbox("Altered mental status", value=False)
     immunocompromised_or_onc = st.checkbox("Immunocompromised or oncology patient", value=False)
 
     st.subheader("Clinical Findings")
-    findings_options = [
-        "seizure",
-        "neck_stiffness",
-        "severe_headache",
-        "influenza_like_illness",
-        "hypoxia",
-        "respiratory_distress",
-        "cough",
-        "wheeze",
-        "stridor",
-        "barky_cough",
-        "eye_swelling",
-        "periorbital_erythema",
-        "pain_with_eom",
-        "drooling",
-        "muffled_voice",
-        "trismus",
-        "vomiting",
-        "diarrhea",
-        "severe_focal_abdominal_pain",
-        "dysuria",
-        "flank_pain",
-        "fever_without_source",
-        "joint_pain",
-        "limp",
-        "refusal_to_bear_weight",
-        "localized_erythema",
-        "warmth_or_tenderness",
-        "fluctuance_or_purulence",
-        "localized_swelling",
-        "kd_conjunctivitis",
-        "kd_oral_changes",
-        "kd_rash",
-        "kd_extremity_changes",
-        "kd_cervical_lymphadenopathy",
-    ]
-    findings = st.multiselect("Select findings", findings_options)
+    findings_map = {
+        "Seizure": "seizure",
+        "Neck Stiffness": "neck_stiffness",
+        "Severe Headache": "severe_headache",
+        "Influenza Like Illness": "influenza_like_illness",
+        "Hypoxia": "hypoxia",
+        "Respiratory Distress": "respiratory_distress",
+        "Cough": "cough",
+        "Wheeze": "wheeze",
+        "Stridor": "stridor",
+        "Barky Cough": "barky_cough",
+        "Sore Throat": "sore_throat",
+        "Conjunctivitis": "conjunctivitis",
+        "Coryza": "coryza",
+        "Koplik Spots": "koplik_spots",
+        "Strawberry Tongue": "strawberry_tongue",
+        "Fissured Lips": "fissured_lips",
+        "Eye Swelling": "eye_swelling",
+        "Periorbital Erythema": "periorbital_erythema",
+        "Pain With EOM": "pain_with_eom",
+        "Drooling": "drooling",
+        "Muffled Voice": "muffled_voice",
+        "Trismus": "trismus",
+        "Vomiting": "vomiting",
+        "Diarrhea": "diarrhea",
+        "Severe Focal Abdominal Pain": "severe_focal_abdominal_pain",
+        "Dysuria": "dysuria",
+        "Flank Pain": "flank_pain",
+        "Fever Without Source": "fever_without_source",
+        "Joint Pain": "joint_pain",
+        "Limp": "limp",
+        "Refusal To Bear Weight": "refusal_to_bear_weight",
+        "Localized Erythema": "localized_erythema",
+        "Warmth Or Tenderness": "warmth_or_tenderness",
+        "Fluctuance Or Purulence": "fluctuance_or_purulence",
+        "Localized Swelling": "localized_swelling",
+        "KD Conjunctivitis": "kd_conjunctivitis",
+        "KD Oral Changes": "kd_oral_changes",
+        "KD Rash": "kd_rash",
+        "KD Extremity Changes": "kd_extremity_changes",
+        "KD Cervical Lymphadenopathy": "kd_cervical_lymphadenopathy",
+    }
+    finding_labels = list(findings_map.keys())
+    selected_labels = st.multiselect("Select findings", finding_labels)
+    selected_keys = [findings_map[label] for label in selected_labels]
+    sore_throat_selected = "sore_throat" in selected_keys
+
+    st.subheader("Rash Pattern Differential Module")
+    rash_pattern_label = st.selectbox(
+        "Rash Pattern",
+        ["None", "Scaly", "Maculopapular", "Vesicular"],
+        index=0,
+    )
+    rash_pattern_map = {
+        "None": None,
+        "Scaly": "scaly",
+        "Maculopapular": "maculopapular",
+        "Vesicular": "vesicular",
+    }
+    rash_pattern = rash_pattern_map[rash_pattern_label]
+
+    rash_distribution = None
+    if rash_pattern == "maculopapular":
+        dist_label = st.selectbox(
+            "Maculopapular Distribution",
+            ["No Set Pattern", "Trunk To Face/Extremities", "Head To Toes"],
+            index=0,
+        )
+        rash_distribution = {
+            "No Set Pattern": "no_set_pattern",
+            "Trunk To Face/Extremities": "trunk_to_face_extremities",
+            "Head To Toes": "head_to_toes",
+        }[dist_label]
+
+    rash_feature_options = []
+    if rash_pattern == "scaly":
+        rash_feature_options = [
+            "Herald Patch + Christmas Tree Distribution (2-3 weeks later)",
+            "Diffuse Sandpaper Like Rash After Strep Pharyngitis",
+        ]
+    elif rash_pattern == "maculopapular":
+        rash_feature_options = [
+            "Posterior Auricular Lymphadenopathy",
+            "Slapped Cheek",
+        ]
+    selected_rash_features = st.multiselect("Rash Features", rash_feature_options)
     kd_flag_set = {
         "kd_conjunctivitis",
         "kd_oral_changes",
@@ -568,18 +672,22 @@ def main() -> None:
         "kd_extremity_changes",
         "kd_cervical_lymphadenopathy",
     }
-    kd_features = len([f for f in findings if f in kd_flag_set])
+    kd_features = len([f for f in selected_keys if f in kd_flag_set])
 
     patient = {
         "age_days": age_days,
         "age_months": age_months,
         "ga_weeks": ga_weeks,
         "fever_days": fever_days,
+        "primary_system": primary_system,
+        "immunization_status": immunization_status,
         "ill_appearing": ill_appearing,
         "hemodynamic_instability": hemodynamic_instability,
         "altered_mental_status": altered_mental_status,
         "immunocompromised_or_onc": immunocompromised_or_onc,
         "kd_features": kd_features,
+        "rash_pattern": rash_pattern,
+        "rash_distribution": rash_distribution,
         "uticalc": {
             "sex": sex,
             "circumcised": circumcised,
@@ -589,12 +697,100 @@ def main() -> None:
         },
     }
 
-    all_flags = findings_options
+    all_flags = list(findings_map.values())
     for flag in all_flags:
         patient[flag] = False
-    for flag in findings:
+    for flag in selected_keys:
         patient[flag] = True
+    patient["high_fever"] = bool(tmax_c >= 40.0)  # ~104F threshold for rash logic.
+    patient["high_fever_3_4_days_before_rash"] = bool(tmax_c >= 40.0 and fever_days in {3, 4})
+    patient["herald_patch_christmas_tree"] = (
+        "Herald Patch + Christmas Tree Distribution (2-3 weeks later)" in selected_rash_features
+    )
+    patient["sandpaper_rash_after_strep"] = (
+        "Diffuse Sandpaper Like Rash After Strep Pharyngitis" in selected_rash_features
+    )
+    patient["posterior_auricular_lymphadenopathy"] = (
+        "Posterior Auricular Lymphadenopathy" in selected_rash_features
+    )
+    patient["slapped_cheek"] = "Slapped Cheek" in selected_rash_features
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
+
+    show_centor_module = sore_throat_selected or primary_system == "ENT"
+    centor_result: Optional[Dict[str, object]] = None
+    if show_centor_module:
+        st.subheader("Centor / McIsaac risk estimate")
+        c1, c2 = st.columns(2)
+        with c1:
+            centor_exudate_or_swelling = st.checkbox("Tonsillar exudate or swelling", value=False)
+            centor_tender_anterior_cervical_nodes = st.checkbox("Tender/swollen anterior cervical lymph nodes", value=False)
+        with c2:
+            centor_fever_gt_38 = st.checkbox("Temperature >38C / 100.4F", value=bool(tmax_c > 38.0))
+            centor_cough_absent = st.checkbox("Cough absent", value=not bool(patient.get("cough")))
+
+        centor_result = compute_centor_score(
+            age_years=age_days / 365.0,
+            tonsillar_exudate_or_swelling=centor_exudate_or_swelling,
+            tender_anterior_cervical_nodes=centor_tender_anterior_cervical_nodes,
+            fever_gt_38=centor_fever_gt_38,
+            cough_absent=centor_cough_absent,
+        )
+
+        patient["centor_exudate_or_swelling"] = centor_exudate_or_swelling
+        patient["centor_tender_anterior_cervical_nodes"] = centor_tender_anterior_cervical_nodes
+        patient["centor_fever_gt_38"] = centor_fever_gt_38
+        patient["centor_cough_absent"] = centor_cough_absent
+
+        st.markdown("**Interpretation Table**")
+        st.table(
+            [
+                {"Score": "0", "Probability": "1-2.5%", "Recommendation": "No further testing or antibiotics."},
+                {
+                    "Score": "1",
+                    "Probability": "5-10%",
+                    "Recommendation": "No further testing or antibiotics.",
+                },
+                {
+                    "Score": "2",
+                    "Probability": "11-17%",
+                    "Recommendation": "Optional rapid strep testing and/or culture.",
+                },
+                {
+                    "Score": "3",
+                    "Probability": "28-35%",
+                    "Recommendation": "Consider rapid strep testing and/or culture.",
+                },
+                {
+                    "Score": ">=4",
+                    "Probability": "51-53%",
+                    "Recommendation": "Consider rapid strep testing and/or culture. Empiric antibiotics may be appropriate depending on the specific scenario.",
+                },
+            ]
+        )
+
+        st.markdown("**Breakdown**")
+        st.table(centor_result["breakdown"])
+        st.markdown(f"**Total score: {centor_result['score']}**")
+        st.markdown(
+            f"**Selected row:** Score {centor_result['score'] if int(centor_result['score']) < 4 else '>=4'} "
+            f"-> Probability {centor_result['probability_range']} -> Recommendation: {centor_result['recommendation']}"
+        )
+        st.caption(f"Probability: {centor_result['probability_range']} | Recommendation: {centor_result['recommendation']}")
+        st.caption("Centor / McIsaac risk estimate does not replace clinical judgment.")
+    else:
+        patient["centor_exudate_or_swelling"] = False
+        patient["centor_tender_anterior_cervical_nodes"] = False
+        patient["centor_fever_gt_38"] = False
+        patient["centor_cough_absent"] = False
+
+    # Explicit live UTICalc recomputation on every rerun using current inputs.
+    live_uticalc_pretest = uticalc_pretest_percent(
+        age_months=age_months,
+        sex=sex,
+        circumcised=circumcised,
+        other_source=bool(patient["uticalc"]["other_source"]),
+        tmax_c=tmax_c,
+    )
 
     # Real-time update on every rerun.
     result = route_patient(patient)
@@ -621,11 +817,23 @@ def main() -> None:
                     "- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
                     "Continue red-flag screening and reassessment."
                 )
-        if 2 <= age_months <= 24 and result.get("uticalc_pretest_percent") is not None:
-            uti_text = f"UTICalc pretest (embedded): {result['uticalc_pretest_percent']:.2f}%"
+        if immunization_status in {"Underimmunized", "Unknown"}:
+            st.markdown(
+                "- **Immunization-related consideration:** Underimmunized/unknown status may increase concern for "
+                "vaccine-preventable etiologies and broader serious bacterial infection differential."
+            )
+        if 2 <= age_months <= 24 and live_uticalc_pretest is not None:
+            uti_text = f"UTICalc pretest (embedded): {live_uticalc_pretest:.2f}%"
             if uti_item and uti_item.get("status") == "ACTIVE":
                 uti_text += " -> UTI considered"
             st.markdown(f"- **{uti_text}**")
+        if centor_result is not None and int(centor_result["score"]) <= 1:
+            pharyngitis_src = source_catalog.get("pharyngitis")
+            if pharyngitis_src:
+                st.markdown(
+                    f"- **Centor score {centor_result['score']} (no auto-activation):** Manual pathway access - "
+                    f"[Pharyngitis Pathway]({pharyngitis_src['url']})"
+                )
         if not visible_items:
             st.write("No differential items generated yet.")
         else:
@@ -640,7 +848,7 @@ def main() -> None:
     assessment = generate_assessment(
         age_months=int(round(age_months)),
         fever_days=fever_days,
-        symptoms=findings,
+        symptoms=selected_labels,
         exam=[],
         high_risk=immunocompromised_or_onc,
         toxic=ill_appearing,
@@ -651,6 +859,13 @@ def main() -> None:
     st.subheader("Next Steps To Consider")
     with st.container(border=True):
         step_items: List[str] = []
+        if immunization_status in {"Underimmunized", "Unknown"}:
+            step_items.append(
+                "Testing/Imaging: Consider expanded evaluation for vaccine-preventable and invasive bacterial causes per local protocol."
+            )
+            step_items.append(
+                "Supportive Care/Treatment: Use lower threshold for reassessment and escalation if clinical course worsens."
+            )
         for entry in assessment.get("recommended_workup", []):
             step_items.append(f"Testing/Imaging: {entry}")
         for entry in assessment.get("recommended_initial_management", []):
@@ -659,6 +874,10 @@ def main() -> None:
             step_items.append(f"Consults: {entry}")
         for entry in assessment.get("admit_considerations", []):
             step_items.append(f"Disposition: {entry}")
+        if centor_result is not None:
+            step_items.append(
+                f"Testing/Imaging: Centor total {centor_result['score']} with probability {centor_result['probability_range']}. {centor_result['recommendation']}"
+            )
 
         if not step_items:
             st.write("No specific next-step suggestions generated for this input set.")
