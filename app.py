@@ -192,7 +192,9 @@ def page_router() -> None:
                     source_entry = source_catalog.get(item["id"])
                     if source_entry:
                         source_label = "CHOP Pathway" if source_entry.get("publisher") == "chop" else "Source Pathway"
-                        st.markdown(f"{source_label}: [{source_entry.get('title', item['name'])}]({source_entry['url']})")
+                        st.write(f"{source_label}: {source_entry.get('title', item['name'])}")
+                        st.link_button("Open Source Pathway", source_entry["url"], key=f"src_{tab_key}_{priority}_{item['id']}")
+                        st.caption(source_entry["url"])
                     else:
                         st.caption("No external source link available for this recommendation.")
 
