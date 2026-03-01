@@ -356,19 +356,17 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("broad_finding_alignment", False, "No broad alignment additions")
 
-    # Simplified rash differential module.
+    # Rash differential module: feature-driven cards should change with selected rash details.
     if patient.get("rash"):
+        rash_specific_hits: List[str] = []
         add_note(
             "other_viral_exanthem",
             "Other Viral Exanthem",
             "Rash present: include common viral exanthems in differential.",
         )
-        add_note("roseola", "Roseola", "Rash present: include roseola in differential.")
-        add_note("rubella", "Rubella", "Rash present: include rubella in differential.")
-        add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash present: include erythema infectiosum in differential.")
-        add_note("measles", "Measles", "Rash present: include measles in differential.", priority="HIGH")
+
         if patient.get("sandpaper_rash") and patient.get("sore_throat"):
-            add_note("scarlet_fever", "Scarlet Fever", "Rash feature detail includes sandpaper morphology.")
+            add_note("scarlet_fever", "Scarlet Fever", "Sandpaper-like rash with sore throat: consider scarlet fever.")
             p = by_id["pharyngitis"]
             _register(
                 activations,
@@ -379,25 +377,42 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Activated because sandpaper rash with sore throat can align with scarlet fever / strep pharyngitis",
                 source="chop",
             )
+            rash_specific_hits.append("sandpaper+sore_throat->scarlet_fever/pharyngitis")
         elif patient.get("sandpaper_rash"):
             add_note("scarlet_fever", "Scarlet Fever", "Sandpaper-like rash present: consider scarlet fever and assess for pharyngitis symptoms.")
+            rash_specific_hits.append("sandpaper->scarlet_fever")
+
         if patient.get("slapped_cheek"):
-            add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash feature detail includes slapped-cheek appearance.")
+            add_note("erythema_infectiosum", "Erythema Infectiosum", "Slapped-cheek appearance present: consider erythema infectiosum.")
+            rash_specific_hits.append("slapped_cheek->erythema_infectiosum")
+
         if patient.get("head_to_toes_spread") and patient.get("posterior_auricular_lymphadenopathy"):
-            add_note("rubella", "Rubella", "Rash feature detail includes head-to-toes spread with posterior auricular lymphadenopathy.")
+            add_note("rubella", "Rubella", "Head-to-toes spread with posterior auricular lymphadenopathy: consider rubella.")
+            rash_specific_hits.append("head_to_toes+posterior_auricular_nodes->rubella")
         elif patient.get("posterior_auricular_lymphadenopathy"):
-            add_note("rubella", "Rubella", "Posterior auricular lymphadenopathy present with rash: include rubella in differential.")
-        if patient.get("herald_patch_christmas_tree"):
-            add_note("pityriasis_rosea", "Pityriasis Rosea", "Rash feature detail includes herald patch / Christmas tree distribution.")
+            add_note("rubella", "Rubella", "Posterior auricular lymphadenopathy with rash: include rubella in differential.")
+            rash_specific_hits.append("posterior_auricular_nodes->rubella")
+
         if patient.get("trunk_to_face_extremities_spread") and patient.get("high_fever_3_4_days_before_rash"):
             add_note(
                 "roseola",
                 "Roseola",
-                "Rash spread from trunk to face/extremities after high fever for 3-4 days: consider roseola.",
+                "Trunk-to-face/extremities rash after high fever for 3-4 days: consider roseola.",
             )
+            rash_specific_hits.append("trunk_to_face_ext+high_fever_3_4d->roseola")
+
+        if patient.get("herald_patch_christmas_tree"):
+            add_note("pityriasis_rosea", "Pityriasis Rosea", "Herald patch / Christmas-tree distribution: consider pityriasis rosea.")
+            rash_specific_hits.append("herald_patch->pityriasis_rosea")
+
         if patient.get("vesicular_lesions"):
-            add_note("vesicular_lesions_algorithm", "See Vesicular Lesions Algorithm", "Rash feature detail includes vesicular lesions.")
-        trace("rash_module", True, "Rash selected: added viral exanthem differential notes")
+            add_note("vesicular_lesions_algorithm", "See Vesicular Lesions Algorithm", "Vesicular rash present: use vesicular lesions algorithm.")
+            rash_specific_hits.append("vesicular->placeholder")
+
+        if rash_specific_hits:
+            trace("rash_module", True, "Rash selected with feature-driven notes: " + ", ".join(rash_specific_hits))
+        else:
+            trace("rash_module", True, "Rash selected with no specific rash features")
     else:
         trace("rash_module", False, "No rash selected")
 

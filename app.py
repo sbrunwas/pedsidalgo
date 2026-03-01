@@ -416,13 +416,19 @@ def _badge_css_class(item: Dict[str, Any]) -> str:
     return "badge-normal"
 
 
+def _display_priority(priority: str) -> str:
+    if str(priority).upper() == "NORMAL":
+        return "MODERATE"
+    return str(priority).upper()
+
+
 def _render_pathway_card(item: Dict[str, Any], source_catalog: Dict[str, Dict[str, Any]]) -> None:
     reason_text = str(item.get("reason", "")).strip()
     reasons = [r.strip() for r in reason_text.split(";") if r.strip()]
     if not reasons:
         reasons = ["No activation reason provided."]
     badge_class = _badge_css_class(item)
-    status_line = f"{item.get('priority', 'NORMAL')} | {item.get('status', 'CONSIDER')}"
+    status_line = f"{_display_priority(str(item.get('priority', 'NORMAL')))} | {str(item.get('status', 'CONSIDER')).upper()}"
     critical_class = " router-card-critical" if str(item.get("priority", "")).upper() == "CRITICAL" else ""
     src = source_catalog.get(str(item.get("id")))
 
@@ -529,7 +535,6 @@ def apply_theme() -> None:
         }
         [data-testid="stNumberInput"] input,
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
-        [data-testid="stCheckbox"] label,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
         [data-testid="stTextInput"] input {
             border: 1px solid var(--border-soft);
@@ -935,11 +940,6 @@ def main() -> None:
     # Real-time update on every rerun.
     result = route_patient(patient)
     source_catalog = load_source_catalog()
-
-    with st.expander("Debug: triggered rules", expanded=False):
-        for row in result.get("rule_trace", []):
-            prefix = "FIRED" if row.get("fired") else "NOPE"
-            st.write(f"- {prefix} | {row.get('rule_id')}: {row.get('details')}")
 
     differential_items: List[Dict[str, Any]] = result.get("pathways", [])
     uti_item = next((p for p in differential_items if p.get("id") == "uti"), None)
