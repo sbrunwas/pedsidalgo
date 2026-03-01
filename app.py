@@ -502,18 +502,12 @@ def main() -> None:
     apply_theme()
     st.markdown('<h1 class="router-title">Pediatric Infectious Pathway Router</h1>', unsafe_allow_html=True)
 
-    age_mode = st.radio("Age Input", ["days", "years/months/days"], horizontal=True)
-    if age_mode == "days":
-        age_days = int(st.number_input("Age (days)", min_value=0, max_value=8000, value=365))
-    else:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            years = int(st.number_input("Years", min_value=0, max_value=21, value=1))
-        with col2:
-            months = int(st.number_input("Months", min_value=0, max_value=11, value=0))
-        with col3:
-            days = int(st.number_input("Days", min_value=0, max_value=30, value=0))
-        age_days = years * 365 + months * 30 + days
+    col1, col2 = st.columns(2)
+    with col1:
+        years = int(st.number_input("Years", min_value=0, max_value=21, value=1))
+    with col2:
+        months = int(st.number_input("Months", min_value=0, max_value=11, value=0))
+    age_days = years * 365 + months * 30
 
     st.caption(f"Computed age_days: {age_days}")
     age_months = age_months_from_days(age_days)
