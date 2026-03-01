@@ -1,4 +1,4 @@
-# pedsidalgo v1
+# Pediatric Fever Clinical Decision Support
 
 Production-ready v1 includes:
 - CHOP-first rules-spec router with transparent activation reasons
