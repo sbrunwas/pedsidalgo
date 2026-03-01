@@ -595,6 +595,8 @@ def main() -> None:
         "Strawberry Tongue": "strawberry_tongue",
         "Fissured Lips": "fissured_lips",
         "Rash": "rash",
+        "Cervical Lymphadenopathy": "cervical_lymphadenopathy",
+        "Extremity Changes": "extremity_changes",
         "Eye Swelling": "eye_swelling",
         "Periorbital Erythema": "periorbital_erythema",
         "Pain With EOM": "pain_with_eom",
@@ -614,11 +616,6 @@ def main() -> None:
         "Warmth Or Tenderness": "warmth_or_tenderness",
         "Fluctuance Or Purulence": "fluctuance_or_purulence",
         "Localized Swelling": "localized_swelling",
-        "KD Conjunctivitis": "kd_conjunctivitis",
-        "KD Oral Changes": "kd_oral_changes",
-        "KD Rash": "kd_rash",
-        "KD Extremity Changes": "kd_extremity_changes",
-        "KD Cervical Lymphadenopathy": "kd_cervical_lymphadenopathy",
     }
     finding_labels = list(findings_map.keys())
     selected_labels = st.multiselect("Select findings", finding_labels)
@@ -662,11 +659,11 @@ def main() -> None:
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
     # Robust KD principal-feature counting to support fever+feature consideration logic.
-    kd_conjunctivitis = bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis"))
-    kd_oral_changes = bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes"))
-    kd_rash = bool(patient.get("kd_rash") or patient.get("rash"))
-    kd_extremity = bool(patient.get("kd_extremity_changes"))
-    kd_nodes = bool(patient.get("kd_cervical_lymphadenopathy"))
+    kd_conjunctivitis = bool(patient.get("conjunctivitis"))
+    kd_oral_changes = bool(patient.get("strawberry_tongue") or patient.get("fissured_lips"))
+    kd_rash = bool(patient.get("rash"))
+    kd_extremity = bool(patient.get("extremity_changes"))
+    kd_nodes = bool(patient.get("cervical_lymphadenopathy"))
     kd_features = sum([kd_conjunctivitis, kd_oral_changes, kd_rash, kd_extremity, kd_nodes])
     patient["kd_features"] = kd_features
 

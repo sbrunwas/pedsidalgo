@@ -311,17 +311,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         add_note("rubella", "Rubella", "Rash present: include rubella in differential.")
         add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash present: include erythema infectiosum in differential.")
         add_note("measles", "Measles", "Rash present: include measles in differential.", priority="HIGH")
-        p = by_id["kawasaki"]
-        _register(
-            activations,
-            pathway_id="kawasaki",
-            name=p["title"],
-            status="CONSIDER",
-            priority="NORMAL",
-            reason="Rash present: include Kawasaki in differential",
-            source="chop",
-        )
-        trace("rash_module", True, "Rash selected: added viral exanthem differential notes and Kawasaki consider")
+        trace("rash_module", True, "Rash selected: added viral exanthem differential notes")
     else:
         trace("rash_module", False, "No rash selected")
 
@@ -448,11 +438,11 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     kd_features = int(patient.get("kd_features", 0))
     kd_principal_from_flags = sum(
         [
-            bool(patient.get("conjunctivitis") or patient.get("kd_conjunctivitis")),
-            bool(patient.get("strawberry_tongue") or patient.get("fissured_lips") or patient.get("kd_oral_changes")),
-            bool(patient.get("kd_rash") or patient.get("rash")),
-            bool(patient.get("kd_extremity_changes")),
-            bool(patient.get("kd_cervical_lymphadenopathy")),
+            bool(patient.get("conjunctivitis")),
+            bool(patient.get("strawberry_tongue") or patient.get("fissured_lips")),
+            bool(patient.get("rash")),
+            bool(patient.get("extremity_changes")),
+            bool(patient.get("cervical_lymphadenopathy")),
         ]
     )
     kd_features = max(kd_features, kd_principal_from_flags)
