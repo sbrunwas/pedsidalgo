@@ -336,18 +336,20 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         add_note(
             "measles",
             "Measles",
-            "Consider measles because Koplik spots are present.",
+            "Activated because Koplik spots are present.",
+            status="ACTIVE",
             priority="HIGH",
         )
-        broad_hits.append("koplik_spots->measles")
-    if patient.get("coryza"):
+        broad_hits.append("koplik_spots->measles(active)")
+    elif (patient.get("coryza") and patient.get("cough")) or (patient.get("coryza") and patient.get("conjunctivitis")):
         add_note(
             "measles",
             "Measles",
-            "Consider measles because coryza is present (especially with compatible viral prodrome).",
+            "Consider measles because coryza is paired with cough or conjunctivitis.",
+            status="CONSIDER",
             priority="NORMAL",
         )
-        broad_hits.append("coryza->measles")
+        broad_hits.append("coryza+(cough|conjunctivitis)->measles(consider)")
 
     if broad_hits:
         trace("broad_finding_alignment", True, ", ".join(broad_hits))
@@ -365,7 +367,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         add_note("rubella", "Rubella", "Rash present: include rubella in differential.")
         add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash present: include erythema infectiosum in differential.")
         add_note("measles", "Measles", "Rash present: include measles in differential.", priority="HIGH")
-        if patient.get("sandpaper_rash"):
+        if patient.get("sandpaper_rash") and patient.get("sore_throat"):
             add_note("scarlet_fever", "Scarlet Fever", "Rash feature detail includes sandpaper morphology.")
             p = by_id["pharyngitis"]
             _register(
@@ -374,15 +376,25 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 name=p["title"],
                 status="ACTIVE",
                 priority="NORMAL",
-                reason="Activated because sandpaper rash can align with scarlet fever / strep pharyngitis",
+                reason="Activated because sandpaper rash with sore throat can align with scarlet fever / strep pharyngitis",
                 source="chop",
             )
+        elif patient.get("sandpaper_rash"):
+            add_note("scarlet_fever", "Scarlet Fever", "Sandpaper-like rash present: consider scarlet fever and assess for pharyngitis symptoms.")
         if patient.get("slapped_cheek"):
             add_note("erythema_infectiosum", "Erythema Infectiosum", "Rash feature detail includes slapped-cheek appearance.")
-        if patient.get("posterior_auricular_lymphadenopathy"):
-            add_note("rubella", "Rubella", "Rash feature detail includes posterior auricular lymphadenopathy.")
+        if patient.get("head_to_toes_spread") and patient.get("posterior_auricular_lymphadenopathy"):
+            add_note("rubella", "Rubella", "Rash feature detail includes head-to-toes spread with posterior auricular lymphadenopathy.")
+        elif patient.get("posterior_auricular_lymphadenopathy"):
+            add_note("rubella", "Rubella", "Posterior auricular lymphadenopathy present with rash: include rubella in differential.")
         if patient.get("herald_patch_christmas_tree"):
             add_note("pityriasis_rosea", "Pityriasis Rosea", "Rash feature detail includes herald patch / Christmas tree distribution.")
+        if patient.get("trunk_to_face_extremities_spread") and patient.get("high_fever_3_4_days_before_rash"):
+            add_note(
+                "roseola",
+                "Roseola",
+                "Rash spread from trunk to face/extremities after high fever for 3-4 days: consider roseola.",
+            )
         if patient.get("vesicular_lesions"):
             add_note("vesicular_lesions_algorithm", "See Vesicular Lesions Algorithm", "Rash feature detail includes vesicular lesions.")
         trace("rash_module", True, "Rash selected: added viral exanthem differential notes")
@@ -390,7 +402,13 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         trace("rash_module", False, "No rash selected")
 
     # Respiratory pathway support so distressing respiratory presentations surface core airway/lung pathways.
-    if patient.get("respiratory_distress") or patient.get("hypoxia") or patient.get("wheeze") or (patient.get("cough") and patient.get("wheeze")):
+    bronchiolitis_age_range = age_months <= 24
+    if (
+        patient.get("respiratory_distress")
+        or patient.get("hypoxia")
+        or patient.get("wheeze")
+        or (patient.get("cough") and bronchiolitis_age_range)
+    ):
         p = by_id["bronchiolitis"]
         _register(
             activations,
@@ -398,14 +416,14 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="HIGH" if (patient.get("respiratory_distress") or patient.get("hypoxia")) else "NORMAL",
-            reason="Activated because respiratory_distress OR hypoxia OR wheeze OR (cough and wheeze)",
+            reason="Activated because respiratory_distress OR hypoxia OR wheeze OR cough in bronchiolitis age range",
             source="chop",
         )
-        trace("bronchiolitis_rule", True, "respiratory_distress OR hypoxia OR wheeze OR cough+wheeze")
+        trace("bronchiolitis_rule", True, "respiratory_distress OR hypoxia OR wheeze OR cough(age<=24mo)")
     else:
         trace("bronchiolitis_rule", False, "No bronchiolitis trigger")
 
-    if patient.get("drooling") or patient.get("muffled_voice") or patient.get("trismus"):
+    if patient.get("neck_swelling") or patient.get("drooling") or patient.get("muffled_voice") or patient.get("trismus"):
         p = by_id["neck_space_infection"]
         severe_combo = (patient.get("drooling") and patient.get("muffled_voice")) or patient.get("trismus")
         _register(
@@ -414,10 +432,10 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="HIGH" if severe_combo else "NORMAL",
-            reason="Activated because drooling OR muffled voice OR trismus",
+            reason="Activated because neck swelling OR drooling OR muffled voice OR trismus",
             source="chop",
         )
-        trace("neck_space_rule", True, "drooling OR muffled_voice OR trismus")
+        trace("neck_space_rule", True, "neck_swelling OR drooling OR muffled_voice OR trismus")
     else:
         trace("neck_space_rule", False, "No neck-space trigger")
 
@@ -615,7 +633,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     else:
         trace("kawasaki_rule", False, "No Kawasaki activation/consider criteria met")
 
-    if patient.get("dysuria") or patient.get("flank_pain") or patient.get("fever_without_source"):
+    if patient.get("dysuria"):
         p = by_id["uti"]
         _register(
             activations,
@@ -623,12 +641,27 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="NORMAL",
-            reason="Activated because dysuria OR flank_pain OR fever_without_source",
+            reason="Activated because dysuria",
             source="chop",
         )
-        trace("uti_symptom_rule", True, "dysuria OR flank_pain OR fever_without_source")
+        trace("uti_dysuria_rule", True, "dysuria")
     else:
-        trace("uti_symptom_rule", False, "No UTI symptom trigger")
+        trace("uti_dysuria_rule", False, "No dysuria trigger")
+
+    if patient.get("flank_pain"):
+        p = by_id["uti"]
+        _register(
+            activations,
+            pathway_id="uti",
+            name=p["title"],
+            status="ACTIVE",
+            priority="NORMAL",
+            reason="Activated because flank pain with concern for UTI/pyelonephritis",
+            source="chop",
+        )
+        trace("uti_flank_pain_rule", True, "flank_pain")
+    else:
+        trace("uti_flank_pain_rule", False, "No flank pain trigger")
 
     uticalc = patient.get("uticalc")
     uticalc_risk: Optional[float] = None
@@ -642,7 +675,24 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             tmax_c=uticalc.get("tmax_c"),
         )
 
-    if uticalc_risk is not None and uticalc_risk >= 2.0:
+    if patient.get("fever_without_source") and not (2 <= age_months <= 24):
+        p = by_id["uti"]
+        _register(
+            activations,
+            pathway_id="uti",
+            name=p["title"],
+            status="CONSIDER",
+            priority="NORMAL",
+            reason="Consider UTI/pyelo (fever without source outside UTICalc age range)",
+            source="chop",
+        )
+        trace("uti_fever_without_source_rule", True, "fever_without_source outside UTICalc age range")
+    elif patient.get("fever_without_source"):
+        trace("uti_fever_without_source_rule", True, "fever_without_source within UTICalc age range")
+    else:
+        trace("uti_fever_without_source_rule", False, "No fever_without_source trigger")
+
+    if patient.get("fever_without_source") and uticalc_risk is not None and uticalc_risk >= 2.0:
         p = by_id["uti"]
         _register(
             activations,
@@ -650,7 +700,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="NORMAL",
-            reason=f"Activated because UTICalc >=2% (pretest): {uticalc_risk:.2f}%",
+            reason=f"Active – UA/UCx recommended (UTICalc ≥2%): {uticalc_risk:.2f}%",
             source="chop",
         )
         trace("uticalc_rule", True, f"UTICalc {uticalc_risk:.2f}% >= 2%")

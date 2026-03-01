@@ -399,6 +399,53 @@ def _render_list(items: List[str], empty_text: str) -> None:
         st.write(empty_text)
 
 
+def _priority_sort_value(priority: str) -> int:
+    order = {"CRITICAL": 0, "HIGH": 1, "NORMAL": 2}
+    return order.get(priority, 3)
+
+
+def _badge_css_class(item: Dict[str, Any]) -> str:
+    priority = str(item.get("priority", "NORMAL")).upper()
+    status = str(item.get("status", "CONSIDER")).upper()
+    if priority == "CRITICAL":
+        return "badge-critical"
+    if priority == "HIGH":
+        return "badge-high"
+    if status == "CONSIDER":
+        return "badge-consider"
+    return "badge-normal"
+
+
+def _render_pathway_card(item: Dict[str, Any], source_catalog: Dict[str, Dict[str, Any]]) -> None:
+    reason_text = str(item.get("reason", "")).strip()
+    reasons = [r.strip() for r in reason_text.split(";") if r.strip()]
+    if not reasons:
+        reasons = ["No activation reason provided."]
+    badge_class = _badge_css_class(item)
+    status_line = f"{item.get('priority', 'NORMAL')} | {item.get('status', 'CONSIDER')}"
+    critical_class = " router-card-critical" if str(item.get("priority", "")).upper() == "CRITICAL" else ""
+    src = source_catalog.get(str(item.get("id")))
+
+    reasons_html = "".join(f"<li>{reason}</li>" for reason in reasons)
+    link_html = ""
+    if src and src.get("url"):
+        link_html = f"<a class='router-link' href='{src['url']}' target='_blank'>Open pathway</a>"
+
+    st.markdown(
+        f"""
+        <div class="router-card{critical_class}">
+          <div class="router-card-header">
+            <div class="router-card-title">{item.get("name", "Untitled Pathway")}</div>
+            <span class="router-badge {badge_class}">{status_line}</span>
+          </div>
+          <ul class="router-reasons">{reasons_html}</ul>
+          {link_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def age_months_from_days(age_days: int) -> float:
     return age_days / 30.4375
 
@@ -431,28 +478,34 @@ def apply_theme() -> None:
         """
         <style>
         :root {
-            --bg-a: #f4fbf8;
-            --bg-b: #f8fbff;
-            --ink: #1f3141;
-            --ink-soft: #4a5f73;
-            --panel-border: #dbe8ef;
-            --accent: #1f8a70;
-            --accent-soft: #e7f6f1;
+            --bg-main: #eef3f9;
+            --bg-panel: #f5f8fc;
+            --card-bg: #ffffff;
+            --text-main: #1e2a3a;
+            --text-muted: #607086;
+            --border-soft: #d8e1ec;
+            --accent: #295b8f;
+            --accent-soft: #e8f0fa;
+            --critical-bg: #f2e8ea;
+            --critical-text: #6b3a43;
+            --high-bg: #efeaf7;
+            --high-text: #4f3f72;
+            --normal-bg: #e8eef6;
+            --normal-text: #314a68;
+            --consider-bg: #ecf1f7;
+            --consider-text: #4f6379;
         }
         .stApp {
-            background:
-                radial-gradient(900px 420px at 5% -12%, #e8f7f1 0%, rgba(232, 247, 241, 0) 60%),
-                radial-gradient(1000px 520px at 95% -20%, #e9f2ff 0%, rgba(233, 242, 255, 0) 62%),
-                linear-gradient(160deg, var(--bg-a) 0%, var(--bg-b) 50%, #ffffff 100%);
-            color: var(--ink);
-            font-family: "Avenir Next", "Nunito", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(180deg, #f2f6fb 0%, var(--bg-main) 100%);
+            color: var(--text-main);
+            font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
         }
         .main .block-container {
             max-width: 1120px;
             padding-top: 1.2rem;
         }
         .stMarkdown, .stText, .stCaption, p, label, div {
-            color: var(--ink);
+            color: var(--text-main);
         }
         .router-title {
             margin: 0 0 0.6rem 0;
@@ -461,36 +514,127 @@ def apply_theme() -> None:
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            color: #10354d;
+            color: #18314f;
             letter-spacing: 0.15px;
             font-weight: 700;
+            text-align: center;
+            width: 100%;
         }
         [data-testid="stMarkdownContainer"] h2 {
-            color: #184864;
+            color: #1e3a59;
             font-weight: 700;
         }
         [data-testid="stCaptionContainer"] {
-            color: var(--ink-soft);
+            color: var(--text-muted);
         }
         [data-testid="stNumberInput"] input,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+        [data-testid="stCheckbox"] label,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
         [data-testid="stTextInput"] input {
-            border: 1px solid var(--panel-border);
-            background: #ffffff;
+            border: 1px solid var(--border-soft);
+            background: var(--card-bg);
             border-radius: 10px;
         }
         [data-testid="stNumberInput"] input:focus,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within,
         [data-testid="stTextInput"] input:focus {
             border-color: var(--accent);
-            box-shadow: 0 0 0 1px var(--accent-soft);
+            box-shadow: 0 0 0 2px rgba(41, 91, 143, 0.18);
         }
         [data-testid="stVerticalBlock"] > [data-testid="stContainer"] {
-            border: 1px solid var(--panel-border) !important;
-            background: linear-gradient(180deg, #ffffff 0%, #fcfeff 100%);
-            border-radius: 14px;
-            box-shadow: 0 6px 16px rgba(20, 58, 86, 0.05);
+            border: 1px solid var(--border-soft) !important;
+            background: var(--card-bg);
+            border-radius: 15px;
+            box-shadow: 0 6px 18px rgba(26, 44, 67, 0.07);
             padding: 0.15rem 0.2rem;
+        }
+        [data-testid="stSidebar"] > div {
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border-soft);
+        }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+            background: transparent;
+            padding: 0.4rem 0.35rem;
+        }
+        .router-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-soft);
+            border-radius: 15px;
+            box-shadow: 0 4px 14px rgba(25, 42, 62, 0.06);
+            padding: 0.8rem 0.95rem 0.75rem 0.95rem;
+            margin: 0 0 0.65rem 0;
+        }
+        .router-card-critical {
+            border-left: 5px solid #8a5a66;
+        }
+        .router-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.6rem;
+            margin-bottom: 0.35rem;
+        }
+        .router-card-title {
+            font-size: 0.99rem;
+            font-weight: 650;
+            color: var(--text-main);
+            line-height: 1.25;
+        }
+        .router-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 0.16rem 0.56rem;
+            font-size: 0.71rem;
+            letter-spacing: 0.02em;
+            font-weight: 600;
+            white-space: nowrap;
+            border: 1px solid transparent;
+        }
+        .badge-critical {
+            background: var(--critical-bg);
+            color: var(--critical-text);
+            border-color: #d9c4c9;
+        }
+        .badge-high {
+            background: var(--high-bg);
+            color: var(--high-text);
+            border-color: #d6cbe9;
+        }
+        .badge-normal {
+            background: var(--normal-bg);
+            color: var(--normal-text);
+            border-color: #cfdaea;
+        }
+        .badge-consider {
+            background: var(--consider-bg);
+            color: var(--consider-text);
+            border-color: #d4deea;
+        }
+        .router-reasons {
+            margin: 0.2rem 0 0.5rem 0;
+            padding-left: 1rem;
+            color: var(--text-muted);
+        }
+        .router-reasons li {
+            margin: 0.12rem 0;
+            line-height: 1.3;
+        }
+        .router-link {
+            font-size: 0.84rem;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 550;
+        }
+        .router-link:hover {
+            text-decoration: underline;
+        }
+        .router-note {
+            color: var(--text-muted);
+            margin: 0.1rem 0 0.5rem 0;
+            font-size: 0.9rem;
         }
         </style>
         """,
@@ -570,62 +714,85 @@ def main() -> None:
     st.subheader("Clinical Findings")
     findings_map = {
         "Cough": "cough",
-        "Sore Throat": "sore_throat",
         "Nasal Congestion": "nasal_congestion",
-        "Coryza": "coryza",
-        "Fatigue": "fatigue",
-        "Myalgias": "myalgias",
-        "Chills": "chills",
-        "Rash": "rash",
+        "Sore Throat": "sore_throat",
         "Vomiting": "vomiting",
         "Diarrhea": "diarrhea",
-        "Fever Without Source": "fever_without_source",
-        "Seizure": "seizure",
-        "Neck Stiffness": "neck_stiffness",
-        "Severe Headache": "severe_headache",
+        "Rash": "rash",
         "Hypoxia": "hypoxia",
         "Respiratory Distress": "respiratory_distress",
         "Wheeze": "wheeze",
         "Stridor": "stridor",
         "Barky Cough": "barky_cough",
-        "Conjunctivitis": "conjunctivitis",
-        "Koplik Spots": "koplik_spots",
-        "Strawberry Tongue": "strawberry_tongue",
-        "Fissured Lips": "fissured_lips",
-        "Cervical Lymphadenopathy": "cervical_lymphadenopathy",
-        "Extremity Changes": "extremity_changes",
-        "Eye Swelling": "eye_swelling",
-        "Periorbital Erythema": "periorbital_erythema",
+        "Seizure": "seizure",
+        "Neck Stiffness": "neck_stiffness",
+        "Severe Headache": "severe_headache",
         "Drooling": "drooling",
         "Muffled Voice": "muffled_voice",
         "Trismus": "trismus",
-        "Severe Focal Abdominal Pain": "severe_focal_abdominal_pain",
+        "Neck Swelling": "neck_swelling",
+        "Eye Swelling": "eye_swelling",
+        "Periorbital Erythema": "periorbital_erythema",
+        "Pain With EOM": "pain_with_eom",
         "Dysuria": "dysuria",
         "Flank Pain": "flank_pain",
-        "Joint Pain": "joint_pain",
-        "Limp": "limp",
-        "Refusal To Bear Weight": "refusal_to_bear_weight",
+        "Fever Without Source": "fever_without_source",
         "Localized Erythema": "localized_erythema",
         "Warmth Or Tenderness": "warmth_or_tenderness",
         "Fluctuance Or Purulence": "fluctuance_or_purulence",
         "Localized Swelling": "localized_swelling",
+        "Joint Pain": "joint_pain",
+        "Limp": "limp",
+        "Refusal To Bear Weight": "refusal_to_bear_weight",
+        "Conjunctivitis": "conjunctivitis",
+        "Coryza": "coryza",
+        "Myalgias": "myalgias",
+        "Chills": "chills",
+        "Fatigue": "fatigue",
+        "Koplik Spots": "koplik_spots",
+        "Strawberry Tongue": "strawberry_tongue",
+        "Fissured Lips": "fissured_lips",
+        "Cervical Lymphadenopathy": "cervical_lymphadenopathy",
+        "Swelling Of Hands And Feet": "extremity_changes",
+        "Severe Focal Abdominal Pain": "severe_focal_abdominal_pain",
     }
     finding_labels = list(findings_map.keys())
     selected_labels = st.multiselect("Select findings", finding_labels)
     selected_keys = [findings_map[label] for label in selected_labels]
     sore_throat_selected = "sore_throat" in selected_keys
     rash_detail_features: List[str] = []
+    rash_morphology = "none"
+    rash_head_to_toes = False
+    rash_trunk_to_face_ext = False
+    rash_sandpaper = False
+    rash_herald_patch = False
+    rash_slapped_cheek = False
+    rash_posterior_nodes = False
+    rash_vesicular = False
     if "rash" in selected_keys:
-        rash_detail_features = st.multiselect(
-            "Rash Feature Details (optional)",
-            [
-                "Sandpaper Rash",
-                "Slapped Cheek",
-                "Posterior Auricular Lymphadenopathy",
-                "Herald Patch / Christmas Tree Distribution",
-                "Vesicular Lesions",
-            ],
-        )
+        st.caption("Rash features (shown only when rash is selected)")
+        rash_morphology = st.selectbox("Rash Morphology", ["none", "scaly", "maculopapular", "vesicular"], index=0)
+        c1, c2 = st.columns(2)
+        with c1:
+            rash_sandpaper = st.checkbox("Sandpaper-like rash", value=False)
+            rash_herald_patch = st.checkbox("Herald patch / Christmas-tree distribution", value=False)
+            rash_slapped_cheek = st.checkbox("Slapped-cheek appearance", value=False)
+        with c2:
+            rash_head_to_toes = st.checkbox("Head-to-toes spread", value=False)
+            rash_trunk_to_face_ext = st.checkbox("Trunk to face/extremities spread", value=False)
+            rash_posterior_nodes = st.checkbox("Posterior auricular lymphadenopathy", value=False)
+            rash_vesicular = st.checkbox("Vesicular lesions", value=False)
+
+        if rash_sandpaper:
+            rash_detail_features.append("Sandpaper Rash")
+        if rash_slapped_cheek:
+            rash_detail_features.append("Slapped Cheek")
+        if rash_posterior_nodes:
+            rash_detail_features.append("Posterior Auricular Lymphadenopathy")
+        if rash_herald_patch:
+            rash_detail_features.append("Herald Patch / Christmas Tree Distribution")
+        if rash_vesicular:
+            rash_detail_features.append("Vesicular Lesions")
     bloody_diarrhea = False
     if "diarrhea" in selected_keys:
         bloody_diarrhea = st.checkbox("Bloody Diarrhea", value=False)
@@ -668,7 +835,10 @@ def main() -> None:
     patient["slapped_cheek"] = "Slapped Cheek" in rash_detail_features
     patient["posterior_auricular_lymphadenopathy"] = "Posterior Auricular Lymphadenopathy" in rash_detail_features
     patient["herald_patch_christmas_tree"] = "Herald Patch / Christmas Tree Distribution" in rash_detail_features
-    patient["vesicular_lesions"] = "Vesicular Lesions" in rash_detail_features
+    patient["vesicular_lesions"] = ("Vesicular Lesions" in rash_detail_features) or (rash_morphology == "vesicular")
+    patient["rash_morphology"] = rash_morphology
+    patient["head_to_toes_spread"] = bool(rash_head_to_toes)
+    patient["trunk_to_face_extremities_spread"] = bool(rash_trunk_to_face_ext)
     patient["bloody_diarrhea"] = bool(bloody_diarrhea)
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
@@ -685,12 +855,17 @@ def main() -> None:
     centor_result: Optional[Dict[str, object]] = None
     if show_centor_module:
         st.subheader("Centor / McIsaac risk estimate")
+        centor_fever_gt_38 = bool(tmax_c > 38.0)
         c1, c2 = st.columns(2)
         with c1:
             centor_exudate_or_swelling = st.checkbox("Tonsillar exudate or swelling", value=False)
             centor_tender_anterior_cervical_nodes = st.checkbox("Tender/swollen anterior cervical lymph nodes", value=False)
         with c2:
-            centor_fever_gt_38 = st.checkbox("Temperature >38C / 100.4F", value=bool(tmax_c > 38.0))
+            st.checkbox(
+                "Temperature >38C / 100.4F (auto from Tmax)",
+                value=centor_fever_gt_38,
+                disabled=True,
+            )
             centor_cough_absent = st.checkbox("Cough absent", value=not bool(patient.get("cough")))
 
         centor_result = compute_centor_score(
@@ -761,11 +936,24 @@ def main() -> None:
     result = route_patient(patient)
     source_catalog = load_source_catalog()
 
+    with st.expander("Debug: triggered rules", expanded=False):
+        for row in result.get("rule_trace", []):
+            prefix = "FIRED" if row.get("fired") else "NOPE"
+            st.write(f"- {prefix} | {row.get('rule_id')}: {row.get('details')}")
+
     differential_items: List[Dict[str, Any]] = result.get("pathways", [])
     uti_item = next((p for p in differential_items if p.get("id") == "uti"), None)
 
     uti_symptom_triggered = bool(patient.get("dysuria") or patient.get("flank_pain") or patient.get("fever_without_source"))
     visible_items = [p for p in differential_items if (p.get("id") != "uti" or uti_symptom_triggered)]
+    visible_items = sorted(
+        visible_items,
+        key=lambda item: (
+            _priority_sort_value(str(item.get("priority", "NORMAL"))),
+            0 if str(item.get("status", "CONSIDER")).upper() == "ACTIVE" else 1,
+            str(item.get("name", "")).lower(),
+        ),
+    )
 
     st.subheader("Differential To Consider")
     with st.container(border=True):
@@ -782,6 +970,7 @@ def main() -> None:
                     "- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
                     "Continue red-flag screening and reassessment."
                 )
+        st.markdown("<div class='router-note'>Pathways are ranked by urgency and confidence.</div>", unsafe_allow_html=True)
         if immunization_status in {"Underimmunized", "Unknown"}:
             st.markdown(
                 "- **Immunization-related consideration:** Underimmunized/unknown status may increase concern for "
@@ -803,12 +992,7 @@ def main() -> None:
             st.write("No differential items generated yet.")
         else:
             for item in visible_items:
-                src = source_catalog.get(item["id"])
-                status_line = f"{item['priority']} | {item['status']}"
-                if src:
-                    st.markdown(f"- **{item['name']}** ({status_line}) - [Pathway Link]({src['url']})")
-                else:
-                    st.markdown(f"- **{item['name']}** ({status_line})")
+                _render_pathway_card(item, source_catalog)
 
     assessment = generate_assessment(
         age_months=int(round(age_months)),

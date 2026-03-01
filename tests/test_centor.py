@@ -37,6 +37,29 @@ def test_age_band_45_plus_gets_minus_one():
     assert age_row["points"] == -1
 
 
+def test_age_under_three_gets_zero_points():
+    r = compute_centor_score(
+        age_years=1,
+        tonsillar_exudate_or_swelling=False,
+        tender_anterior_cervical_nodes=False,
+        fever_gt_38=False,
+        cough_absent=False,
+    )
+    age_row = next(x for x in r["breakdown"] if x["name"] == "Age")
+    assert age_row["points"] == 0
+
+
+def test_total_score_not_negative():
+    r = compute_centor_score(
+        age_years=50,
+        tonsillar_exudate_or_swelling=False,
+        tender_anterior_cervical_nodes=False,
+        fever_gt_38=False,
+        cough_absent=False,
+    )
+    assert r["score"] == 0
+
+
 def test_score_gte_four_uses_highest_probability_row():
     r = compute_centor_score(
         age_years=10,

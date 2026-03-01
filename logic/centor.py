@@ -6,6 +6,8 @@ from typing import Dict, List
 
 
 def _age_points(age_years: float) -> tuple[int, str]:
+    if age_years < 3:
+        return 0, "Age <3 years (no age adjustment)"
     if 3 <= age_years <= 14:
         return 1, "Age 3-14 years"
     if 15 <= age_years <= 44:
@@ -65,7 +67,8 @@ def compute_centor_score(
         },
     ]
 
-    score = int(sum(int(row["points"]) for row in breakdown))
+    raw_score = int(sum(int(row["points"]) for row in breakdown))
+    score = max(raw_score, 0)
     probability_range, recommendation = _interpretation(score)
 
     return {
