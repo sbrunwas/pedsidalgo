@@ -48,6 +48,37 @@ def generate_assessment(
     age_years = age_months / 12.0
     infant_under_90d = age_months < 3
 
+    def _score_candidate(
+        base: float,
+        supports: List[str] | None = None,
+        opposes: List[str] | None = None,
+        min_age_months: int | None = None,
+        max_age_months: int | None = None,
+        min_fever_days: int | None = None,
+        max_fever_days: int | None = None,
+        required_any: List[str] | None = None,
+    ) -> float:
+        score = base
+        if min_age_months is not None and age_months < min_age_months:
+            score -= 3.0
+        if max_age_months is not None and age_months > max_age_months:
+            score -= 3.0
+        if min_fever_days is not None and fever_days < min_fever_days:
+            score -= 2.0
+        if max_fever_days is not None and fever_days > max_fever_days:
+            score -= 2.0
+
+        if required_any and not features.intersection(set(required_any)):
+            score -= 2.5
+
+        for item in supports or []:
+            if item in features:
+                score += 1.8
+        for item in opposes or []:
+            if item in features:
+                score -= 1.0
+        return score
+
     # Core safety net and immediate threats.
     if unstable or toxic:
         _add_unique(cannot_miss, "Sepsis/shock with potential end-organ hypoperfusion")
@@ -147,49 +178,127 @@ def generate_assessment(
             "Obtain urinalysis and urine culture (catheterized specimen in non-toilet-trained child) before antibiotics when feasible.",
         )
 
-    # Common etiologies.
-    if age_years < 2 and ("wheeze" in features or "cough" in features):
-        _add_unique(common, "Bronchiolitis / viral lower respiratory tract infection")
+    # Broad-to-narrow common differential:
+    # start with a wide age/fever-informed list, then rerank as evidence is added.
+    common_candidates = [
+        (
+            "Viral URI (including influenza/COVID depending on season and circulation)",
+            _score_candidate(
+                base=2.8,
+                supports=["runny or stuffy nose", "cough", "sore throat"],
+                opposes=["neck stiffness", "seizure", "altered mental status"],
+            ),
+        ),
+        (
+            "Community-acquired pneumonia (viral or bacterial)",
+            _score_candidate(
+                base=2.1,
+                supports=["cough", "difficulty breathing", "tachypnea or increased work of breathing", "hypoxia (spo2 < 90%)"],
+                min_fever_days=1,
+            ),
+        ),
+        (
+            "Bronchiolitis / viral lower respiratory tract infection",
+            _score_candidate(
+                base=2.2,
+                supports=["wheeze", "cough", "tachypnea or increased work of breathing"],
+                max_age_months=23,
+            ),
+        ),
+        (
+            "Group A streptococcal pharyngitis",
+            _score_candidate(
+                base=1.6,
+                supports=["sore throat", "swollen lymph nodes"],
+                opposes=["cough", "runny or stuffy nose"],
+                min_age_months=36,
+                required_any=["sore throat"],
+            ),
+        ),
+        (
+            "Acute bacterial sinusitis",
+            _score_candidate(
+                base=1.2,
+                supports=["runny or stuffy nose", "nasal discharge", "cough"],
+                min_fever_days=10,
+            ),
+        ),
+        (
+            "Acute otitis media",
+            _score_candidate(
+                base=1.7,
+                supports=["ear pain", "runny or stuffy nose"],
+                max_age_months=144,
+            ),
+        ),
+        (
+            "Viral gastroenteritis / enteric infection",
+            _score_candidate(
+                base=1.5,
+                supports=["vomiting or diarrhea", "abdominal pain"],
+            ),
+        ),
+        (
+            "Cellulitis/abscess",
+            _score_candidate(
+                base=1.1,
+                supports=["fluctuant skin lesion", "tender skin", "rash"],
+                required_any=["fluctuant skin lesion", "tender skin", "rash"],
+            ),
+        ),
+    ]
+
+    # Keep UTI in the broad differential even when not in cannot-miss bucket.
+    if "UTI/pyelonephritis (including without urinary symptoms)" not in cannot_miss:
+        common_candidates.append(
+            (
+                "UTI/pyelonephritis (including without urinary symptoms)",
+                _score_candidate(
+                    base=1.8,
+                    supports=["burning/frequent urination", "abdominal pain"],
+                    min_fever_days=1,
+                ),
+            )
+        )
+
+    scored_common = sorted(
+        ((name, score) for name, score in common_candidates if score >= 0.7),
+        key=lambda item: (-item[1], item[0]),
+    )
+    # Narrow list as user adds more details, while always keeping a meaningful breadth.
+    detail_count = len(features) + int(high_risk) + int(toxic) + int(unstable) + int(fever_without_source)
+    common_limit = max(3, 7 - detail_count)
+    for name, _ in scored_common[:common_limit]:
+        _add_unique(common, name)
+
+    if "Bronchiolitis / viral lower respiratory tract infection" in common:
         _add_unique(
             recommended_initial_management,
             "Bronchiolitis care is mainly supportive: suctioning, hydration, antipyretics, oxygen if hypoxic.",
         )
 
-    if "cough" in features and (
-        "tachypnea or increased work of breathing" in features
-        or "hypoxia (spo2 < 90%)" in features
-        or fever_days >= 2
-    ):
-        _add_unique(common, "Community-acquired pneumonia (viral or bacterial)")
+    if "Community-acquired pneumonia (viral or bacterial)" in common:
         _add_unique(
             recommended_workup,
             "Consider chest radiograph when severe illness, hypoxia, or admission is being considered.",
         )
 
-    if features.intersection({"runny or stuffy nose", "cough", "sore throat"}):
-        _add_unique(common, "Viral URI (including influenza/COVID depending on season and circulation)")
+    if "Viral URI (including influenza/COVID depending on season and circulation)" in common:
         _add_unique(
             recommended_workup,
             "Consider influenza/COVID testing when result will change treatment, isolation, or disposition.",
         )
 
-    if (
-        "sore throat" in features
-        and "cough" not in features
-        and ("swollen lymph nodes" in features or age_years >= 3)
-    ):
-        _add_unique(common, "Group A streptococcal pharyngitis")
+    if "Group A streptococcal pharyngitis" in common:
         _add_unique(recommended_workup, "Obtain rapid strep test ± throat culture per local testing protocol.")
 
-    if ("runny or stuffy nose" in features or "nasal discharge" in features) and fever_days >= 10:
-        _add_unique(common, "Acute bacterial sinusitis")
+    if "Acute bacterial sinusitis" in common and fever_days >= 10:
         _add_unique(
             recommended_initial_management,
             "If persistent/worsening bacterial sinusitis pattern is present, consider amoxicillin-clavulanate per local guideline.",
         )
 
-    if "fluctuant skin lesion" in features or ("rash" in features and "tender skin" in features):
-        _add_unique(common, "Cellulitis/abscess")
+    if "Cellulitis/abscess" in common:
         _add_unique(
             recommended_workup,
             "Evaluate for drainable collection; bedside ultrasound can help when fluctuance is uncertain.",

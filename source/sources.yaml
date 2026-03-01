@@ -1,0 +1,97 @@
+pathways:
+  - id: fever_general
+    title: Fever - General
+    url: https://www.chop.edu/clinical-pathway/child-with-fever-clinical-pathway
+    publisher: chop
+  - id: fever_infant
+    title: Fever - Infant
+    url: https://www.chop.edu/clinical-pathway/febrile-infant-emergent-evaluation-clinical-pathway
+    publisher: chop
+  - id: fever_returned_traveler
+    title: Fever - Returned Traveler
+    url: https://www.chop.edu/clinical-pathway/fever-returned-traveler-emergency-department-clinical-pathway
+    publisher: chop
+  - id: fever_onc_patient
+    title: Fever - Onc Patient
+    url: https://www.chop.edu/clinical-pathway/oncology-patient-with-fever-clinical-pathway
+    publisher: chop
+  - id: febrile_seizure
+    title: Febrile Seizure
+    url: https://www.chop.edu/clinical-pathway/febrile-seizures-without-neurologic-disease-clinical-pathway
+    publisher: chop
+  - id: influenza
+    title: Influenza
+    url: https://www.chop.edu/clinical-pathway/influenza-flu-clinical-pathway
+    publisher: chop
+  - id: covid
+    title: COVID
+    url: https://www.chop.edu/clinical-pathway/covid-disease-clinical-pathway
+    publisher: chop
+  - id: orbital_preseptal_cellulitis
+    title: Orbital/Preseptal Cellulitis
+    url: https://www.chop.edu/clinical-pathway/preseptal-or-orbital-cellulitis-clinical-pathway
+    publisher: chop
+  - id: otitis_media
+    title: Otitis Media
+    url: https://www.chop.edu/clinical-pathway/otitis-media-acute-clinical-pathway
+    publisher: chop
+  - id: pharyngitis
+    title: Pharyngitis
+    url: https://www.chop.edu/clinical-pathway/pharyngitis-clinical-pathway
+    publisher: chop
+  - id: dental_infection
+    title: Dental Infection
+    url: https://www.chop.edu/clinical-pathway/dental-trauma-or-infection-clinical-pathway
+    publisher: chop
+  - id: neck_space_infection
+    title: Neck Space Infection
+    url: https://www.chop.edu/clinical-pathway/neck-infection-clinical-pathway
+    publisher: chop
+  - id: croup
+    title: Croup
+    url: https://www.chop.edu/clinical-pathway/croup-emergency-department-and-inpatient-clinical-pathway
+    publisher: chop
+  - id: bronchiolitis
+    title: Bronchiolitis
+    url: https://www.chop.edu/clinical-pathway/bronchiolitis-emergent-evaluation-clinical-pathway
+    publisher: chop
+  - id: pneumonia
+    title: Pneumonia
+    url: https://www.chop.edu/clinical-pathway/pneumonia-community-acquired-clinical-pathway
+    publisher: chop
+  - id: gastroenteritis
+    title: Gastroenteritis (Seattle Children PDF)
+    url: https://www.seattlechildrens.org/globalassets/documents/healthcare-professionals/clinical-standard-work/acute-gastroenteritis-age-pathway.pdf
+    publisher: seattle_childrens
+  - id: uti
+    title: UTI
+    url: https://www.chop.edu/clinical-pathway/urinary-tract-infection-uti-clinical-pathway
+    publisher: chop
+  - id: kawasaki
+    title: Kawasaki
+    url: https://www.chop.edu/clinical-pathway/kawasaki-disease-incomplete-kawasaki-disease-clinical-pathway
+    publisher: chop
+  - id: sepsis
+    title: Sepsis
+    url: https://www.chop.edu/clinical-pathway/sepsis-emergency-department-inpatient-picu-clinical-pathway
+    publisher: chop
+  - id: sepsis_neonatal
+    title: Sepsis - Neonatal
+    url: https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+    publisher: chop
+  - id: meningitis
+    title: Meningitis
+    url: https://www.chop.edu/clinical-pathway/meningitis-clinical-pathway
+    publisher: chop
+  - id: sti
+    title: STI
+    url: https://www.chop.edu/clinical-pathway/sexually-transmitted-infections-sti-adolescents-emergency-primary-care-clinical-pathway
+    publisher: chop
+  - id: cellulitis_abscess
+    title: Cellulitis/Abscess
+    url: https://www.chop.edu/clinical-pathway/cellulitis-abscess-clinical-pathway
+    publisher: chop
+  - id: osteomyelitis
+    title: Osteomyelitis
+    url: https://www.chop.edu/clinical-pathway/osteomyelitis-clinical-pathway
+    publisher: chop

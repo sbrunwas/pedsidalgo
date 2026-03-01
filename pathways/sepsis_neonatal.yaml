@@ -1,0 +1,39 @@
+id: sepsis_neonatal
+title: Sepsis - Neonatal
+source_urls:
+  - https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+tags:
+  - stub
+  - needs_algorithm_extraction
+nodes:
+  - id: start
+    type: info
+    label: Start
+    text: Stub pathway start.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+  - id: algorithm_stub
+    type: info
+    label: Algorithm Stub
+    text: Algorithm steps are intentionally not populated yet.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+  - id: definitions_stub
+    type: info
+    label: Definitions Stub
+    text: Definitions and criteria pending curation from source pathway.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+  - id: end
+    type: end
+    label: End
+    text: Stub pathway end.
+    source_urls:
+      - https://www.chop.edu/clinical-pathway/sepsis-niicu-clinical-pathway
+edges:
+  - from: start
+    to: algorithm_stub
+  - from: algorithm_stub
+    to: definitions_stub
+  - from: definitions_stub
+    to: end

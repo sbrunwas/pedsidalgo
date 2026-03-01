@@ -1,0 +1,105 @@
+id: master_router
+version: 1
+kind: rules_spec
+age_cutoffs:
+  infant_days_max: 60
+  uticalc_months_min: 2
+  uticalc_months_max: 24
+  kawasaki_min_days: 60
+infant_split:
+  corrected_age_if_ga_lt_weeks: 37
+  bands_days:
+    - [0, 21]
+    - [22, 28]
+    - [29, 60]
+  targets:
+    ill_appearing: fever_infant
+    well_appearing: fever_infant
+activation_rules:
+  - id: sepsis_rule
+    pathways: [sepsis]
+    mode: activate
+    condition_any: [ill_appearing, hemodynamic_instability, altered_mental_status]
+    elevated_if_any: [hypoxia, respiratory_distress, altered_mental_status, hemodynamic_instability]
+  - id: onc_fever_rule
+    pathways: [fever_onc_patient]
+    mode: activate
+    condition_any: [immunocompromised_or_onc]
+  - id: seizure_rule
+    pathways: [febrile_seizure, meningitis]
+    mode: activate
+    condition_any: [seizure]
+    meningitis_elevated_if_any: [neck_stiffness, altered_mental_status]
+  - id: meningitis_direct_rule
+    pathways: [meningitis]
+    mode: activate
+    condition_any: [neck_stiffness, altered_mental_status]
+  - id: meningitis_headache_consider_rule
+    pathways: [meningitis]
+    mode: consider
+    condition_all: [severe_headache]
+  - id: ili_rule
+    pathways: [influenza, covid]
+    mode: activate
+    condition_any: [influenza_like_illness]
+  - id: orbital_preseptal_rule
+    pathways: [orbital_preseptal_cellulitis]
+    mode: activate
+    condition_any: [eye_swelling, periorbital_erythema]
+    elevated_if_all: [eye_swelling, pain_with_eom]
+  - id: gastro_rule
+    pathways: [gastroenteritis]
+    mode: activate
+    condition_logic: (vomiting OR diarrhea) AND NOT severe_focal_abdominal_pain
+    add_consider_note_if: severe_focal_abdominal_pain
+    consider_note: consider_surgical_abdomen
+  - id: cellulitis_abscess_rule
+    pathways: [cellulitis_abscess]
+    mode: activate
+    condition_all:
+      - localized_erythema
+      - any_of: [warmth_or_tenderness, fluctuance_or_purulence, localized_swelling]
+  - id: osteomyelitis_rule
+    pathways: [osteomyelitis]
+    mode: activate
+    condition_any: [joint_pain, limp, refusal_to_bear_weight]
+  - id: kawasaki_rule
+    pathways: [kawasaki]
+    mode: activate_or_consider
+    requires:
+      age_days_min: 60
+      fever_days_min: 5
+    activate_if_kd_features_gte: 4
+    consider_if_kd_features_between: [2, 3]
+  - id: uti_symptom_rule
+    pathways: [uti]
+    mode: activate
+    condition_any: [dysuria, flank_pain, fever_without_source]
+  - id: uticalc_rule
+    pathways: [uti]
+    mode: activate
+    requires:
+      age_months_range: [2, 24]
+    activate_if:
+      uticalc_pretest_percent_gte: 2.0
+    reason: UTICalc >=2% (race-free pretest)
+critical_overrides:
+  flags:
+    - hemodynamic_instability
+    - altered_mental_status
+    - hypoxia
+    - neck_stiffness
+    - refusal_to_bear_weight
+    - eye_swelling_and_pain_with_eom
+    - drooling_and_muffled_voice_or_trismus
+  forced_critical_pathways:
+    - sepsis
+    - meningitis
+    - neck_space_infection
+    - orbital_preseptal_cellulitis
+    - osteomyelitis
+    - fever_infant
+sort_order:
+  priority: [CRITICAL, HIGH, NORMAL]
+  status: [ACTIVE, CONSIDER]
+  chop_first: true
