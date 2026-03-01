@@ -94,7 +94,6 @@ def _register(
         acc[pathway_id] = Activation(pathway_id, name, status, priority, reason, source)
         return
 
-    # Keep strongest status (ACTIVE > CONSIDER) and strongest priority (CRITICAL > HIGH > NORMAL)
     status = "ACTIVE" if (existing.status == "ACTIVE" or status == "ACTIVE") else "CONSIDER"
     p_order = {"CRITICAL": 3, "HIGH": 2, "NORMAL": 1}
     priority = existing.priority if p_order[existing.priority] >= p_order[priority] else priority
@@ -109,6 +108,10 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
 
     activations: Dict[str, Activation] = {}
     notes: List[Dict[str, str]] = []
+    rule_trace: List[Dict[str, Any]] = []
+
+    def trace(rule_id: str, fired: bool, details: str) -> None:
+        rule_trace.append({"rule_id": rule_id, "fired": fired, "details": details})
 
     age_days = int(patient.get("age_days", 0))
     age_months = patient.get("age_months")
@@ -137,6 +140,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             ),
             source="chop" if entry.get("publisher") == "chop" else "non_chop",
         )
+        trace("infant_split", True, f"Infant split applied (band={band or 'n/a'})")
+    else:
+        trace("infant_split", False, "Age >= 60 days")
 
     if ill_appearing or patient.get("hemodynamic_instability") or patient.get("altered_mental_status"):
         sepsis = by_id["sepsis"]
@@ -153,6 +159,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because ill_appearing OR hemodynamic_instability OR altered_mental_status",
             source="chop",
         )
+        trace("sepsis_rule", True, "ill_appearing OR hemodynamic_instability OR altered_mental_status")
+    else:
+        trace("sepsis_rule", False, "No sepsis trigger flags")
 
     if patient.get("immunocompromised_or_onc"):
         p = by_id["fever_onc_patient"]
@@ -165,6 +174,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because immunocompromised_or_onc",
             source="chop",
         )
+        trace("onc_fever_rule", True, "immunocompromised_or_onc")
+    else:
+        trace("onc_fever_rule", False, "No onc trigger")
 
     if patient.get("seizure"):
         fs = by_id["febrile_seizure"]
@@ -188,6 +200,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because seizure (parallel meningitis activation)",
             source="chop",
         )
+        trace("seizure_rule", True, "Activated febrile_seizure + meningitis")
+    else:
+        trace("seizure_rule", False, "No seizure")
 
     if patient.get("neck_stiffness") or patient.get("altered_mental_status"):
         men = by_id["meningitis"]
@@ -200,6 +215,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because neck_stiffness OR altered_mental_status",
             source="chop",
         )
+        trace("meningitis_direct_rule", True, "neck_stiffness OR altered_mental_status")
     elif patient.get("severe_headache"):
         men = by_id["meningitis"]
         _register(
@@ -211,6 +227,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Consider because severe headache alone",
             source="chop",
         )
+        trace("meningitis_headache_consider_rule", True, "severe_headache only")
+    else:
+        trace("meningitis_rules", False, "No meningitis direct/consider trigger")
 
     if patient.get("influenza_like_illness"):
         for pid in ["influenza", "covid"]:
@@ -224,6 +243,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Activated because influenza-like illness",
                 source="chop",
             )
+        trace("ili_rule", True, "Activated influenza + covid")
+    else:
+        trace("ili_rule", False, "No influenza-like illness")
 
     if patient.get("eye_swelling") or patient.get("periorbital_erythema"):
         p = by_id["orbital_preseptal_cellulitis"]
@@ -237,6 +259,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because eye_swelling OR periorbital_erythema",
             source="chop",
         )
+        trace("orbital_preseptal_rule", True, "eye_swelling OR periorbital_erythema")
+    else:
+        trace("orbital_preseptal_rule", False, "No orbital/preseptal trigger")
 
     if (patient.get("vomiting") or patient.get("diarrhea")) and not patient.get("severe_focal_abdominal_pain"):
         p = by_id["gastroenteritis"]
@@ -249,6 +274,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because vomiting OR diarrhea and no severe focal abdominal pain",
             source="non_chop",
         )
+        trace("gastro_rule", True, "vomiting OR diarrhea without severe focal abdominal pain")
+    else:
+        trace("gastro_rule", False, "No gastro trigger or severe focal abdominal pain present")
     if patient.get("severe_focal_abdominal_pain"):
         notes.append(
             {
@@ -274,6 +302,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because localized_erythema with warmth/tenderness or fluctuance/purulence or localized_swelling",
             source="chop",
         )
+        trace("cellulitis_abscess_rule", True, "localized_erythema + associated local signs")
+    else:
+        trace("cellulitis_abscess_rule", False, "No cellulitis/abscess trigger pattern")
 
     if patient.get("joint_pain") or patient.get("limp") or patient.get("refusal_to_bear_weight"):
         p = by_id["osteomyelitis"]
@@ -286,6 +317,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because joint_pain OR limp OR refusal_to_bear_weight",
             source="chop",
         )
+        trace("osteomyelitis_rule", True, "joint_pain OR limp OR refusal_to_bear_weight")
+    else:
+        trace("osteomyelitis_rule", False, "No osteomyelitis trigger")
 
     if age_days >= int(spec["age_cutoffs"]["kawasaki_min_days"]) and int(patient.get("fever_days", 0)) >= 5:
         kd_features = int(patient.get("kd_features", 0))
@@ -300,6 +334,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Activated because age>=60d, fever>=5d, KD features >=4",
                 source="chop",
             )
+            trace("kawasaki_rule", True, "ACTIVE (KD features >=4)")
         elif 2 <= kd_features <= 3:
             _register(
                 activations,
@@ -310,6 +345,11 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
                 reason="Consider incomplete Kawasaki because age>=60d, fever>=5d, KD features 2-3",
                 source="chop",
             )
+            trace("kawasaki_rule", True, "CONSIDER (KD features 2-3)")
+        else:
+            trace("kawasaki_rule", False, "Criteria window met but KD features <2")
+    else:
+        trace("kawasaki_rule", False, "Requires age>=60d and fever_days>=5")
 
     if patient.get("dysuria") or patient.get("flank_pain") or patient.get("fever_without_source"):
         p = by_id["uti"]
@@ -322,6 +362,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason="Activated because dysuria OR flank_pain OR fever_without_source",
             source="chop",
         )
+        trace("uti_symptom_rule", True, "dysuria OR flank_pain OR fever_without_source")
+    else:
+        trace("uti_symptom_rule", False, "No UTI symptom trigger")
 
     uticalc = patient.get("uticalc", {})
     uticalc_risk = uticalc_pretest_percent(
@@ -343,8 +386,12 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             reason=f"Activated because UTICalc >=2% (race-free pretest): {uticalc_risk:.2f}%",
             source="chop",
         )
+        trace("uticalc_rule", True, f"UTICalc {uticalc_risk:.2f}% >= 2%")
+    elif uticalc_risk is None:
+        trace("uticalc_rule", False, "Age outside 2-24 months")
+    else:
+        trace("uticalc_rule", False, f"UTICalc {uticalc_risk:.2f}% < 2%")
 
-    # Critical overrides
     force_flags = _build_force_critical_flags(patient)
     any_force = any(force_flags.values())
     forced_paths = set(spec.get("critical_overrides", {}).get("forced_critical_pathways", []))
@@ -353,6 +400,9 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             if pid in forced_paths:
                 item.priority = "CRITICAL"
                 item.reason = f"{item.reason}; Critical override applied"
+        trace("critical_overrides", True, "At least one critical flag set")
+    else:
+        trace("critical_overrides", False, "No critical override flags set")
 
     results = [a.__dict__ for a in activations.values()]
     results.extend(notes)
@@ -375,4 +425,5 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
         "pathways": results,
         "uticalc_pretest_percent": uticalc_risk,
         "critical_flags": force_flags,
+        "rule_trace": rule_trace,
     }

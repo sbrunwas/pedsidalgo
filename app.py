@@ -118,35 +118,84 @@ def page_router() -> None:
         "uticalc": uticalc_payload,
     }
 
+    all_flags = [
+        "seizure",
+        "neck_stiffness",
+        "severe_headache",
+        "influenza_like_illness",
+        "hypoxia",
+        "respiratory_distress",
+        "eye_swelling",
+        "periorbital_erythema",
+        "pain_with_eom",
+        "drooling",
+        "muffled_voice",
+        "trismus",
+        "vomiting",
+        "diarrhea",
+        "severe_focal_abdominal_pain",
+        "dysuria",
+        "flank_pain",
+        "fever_without_source",
+        "joint_pain",
+        "limp",
+        "refusal_to_bear_weight",
+        "localized_erythema",
+        "warmth_or_tenderness",
+        "fluctuance_or_purulence",
+        "localized_swelling",
+    ]
+    for flag in all_flags:
+        patient[flag] = False
     for flag in neuro + resp + ent + gi + gu + msk + skin:
         patient[flag] = True
 
-    result = route_patient(patient)
-    st.session_state.router_result = result
+    run_now = st.button("Run Full Parallel Differential", type="primary")
+    if run_now or "router_result" not in st.session_state:
+        st.session_state.router_result = route_patient(patient)
+        st.session_state.router_input = patient
+
+    result = st.session_state.get("router_result", {"pathways": []})
 
     if result.get("uticalc_pretest_percent") is not None:
         st.caption(f"UTICalc pretest: {result['uticalc_pretest_percent']:.2f}%")
 
-    st.subheader("Ranked Pathway Cards")
+    st.subheader("Parallel Differential")
     priorities = ["CRITICAL", "HIGH", "NORMAL"]
     pathways: List[Dict[str, Any]] = result.get("pathways", [])
+    active = [p for p in pathways if p["status"] == "ACTIVE"]
+    consider = [p for p in pathways if p["status"] == "CONSIDER"]
+    st.caption(f"Active: {len(active)} | Consider: {len(consider)}")
 
-    for priority in priorities:
-        group = [p for p in pathways if p["priority"] == priority]
-        if not group:
-            continue
-        st.markdown(f"### {priority}")
-        for item in group:
-            with st.container(border=True):
-                st.write(f"**{item['name']}**")
-                st.write(f"Status: `{item['status']}`")
-                st.write(f"Activated because: {item['reason']}")
-                if (PATHWAYS_DIR / f"{item['id']}.yaml").exists():
-                    if st.button(f"Open Pathway: {item['id']}", key=f"open_{priority}_{item['id']}"):
-                        st.session_state.selected_pathway = item["id"]
-                        st.session_state.page = "Pathway Navigator"
-                else:
-                    st.caption("No pathway YAML available for this note card.")
+    tab_active, tab_consider = st.tabs(["ACTIVE", "CONSIDER"])
+
+    def render_cards(items: List[Dict[str, Any]], tab_key: str) -> None:
+        for priority in priorities:
+            group = [p for p in items if p["priority"] == priority]
+            if not group:
+                continue
+            st.markdown(f"### {priority}")
+            for item in group:
+                with st.container(border=True):
+                    st.write(f"**{item['name']}**")
+                    st.write(f"Status: `{item['status']}`")
+                    st.write(f"Activated because: {item['reason']}")
+                    if (PATHWAYS_DIR / f"{item['id']}.yaml").exists():
+                        if st.button(f"Open Pathway: {item['id']}", key=f"open_{tab_key}_{priority}_{item['id']}"):
+                            st.session_state.selected_pathway = item["id"]
+                            st.session_state.page = "Pathway Navigator"
+                    else:
+                        st.caption("No pathway YAML available for this note card.")
+
+    with tab_active:
+        render_cards(active, "active")
+    with tab_consider:
+        render_cards(consider, "consider")
+
+    with st.expander("Rule Evaluation Trace", expanded=False):
+        for row in result.get("rule_trace", []):
+            state = "FIRED" if row.get("fired") else "NO"
+            st.write(f"- {row.get('rule_id')}: {state} | {row.get('details')}")
 
 
 def page_navigator() -> None:
