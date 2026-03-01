@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import re
 
 import streamlit as st
-
-try:
-    import requests
-    from bs4 import BeautifulSoup
-except Exception:  # pragma: no cover
-    requests = None
-    BeautifulSoup = None
 
 from logic.router import route_patient
 from yaml_compat import safe_load
@@ -20,6 +12,7 @@ from yaml_compat import safe_load
 ROOT = Path(__file__).resolve().parent
 PATHWAYS_DIR = ROOT / "pathways"
 SOURCES_PATH = ROOT / "source" / "sources.yaml"
+st.set_page_config(page_title="Pediatric Infectious Pathway Router", layout="wide")
 
 
 def _add_unique(items: List[str], entry: str) -> None:
@@ -408,13 +401,6 @@ def age_months_from_days(age_days: int) -> float:
     return age_days / 30.4375
 
 
-def load_pathway(pathway_id: str) -> Dict[str, Any]:
-    path = PATHWAYS_DIR / f"{pathway_id}.yaml"
-    if not path.exists():
-        return {}
-    return safe_load(path.read_text()) or {}
-
-
 @st.cache_data
 def load_source_catalog() -> Dict[str, Dict[str, Any]]:
     data = safe_load(SOURCES_PATH.read_text()) or {}
@@ -422,112 +408,44 @@ def load_source_catalog() -> Dict[str, Dict[str, Any]]:
     return {p["id"]: p for p in pathways if "id" in p}
 
 
-def _clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def scrape_chop_recommendations(url: str) -> Dict[str, Any]:
-    if requests is None or BeautifulSoup is None:
-        return {"ok": False, "recommendations": [], "error": "requests/bs4 not installed"}
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-    except Exception as exc:
-        return {"ok": False, "recommendations": [], "error": str(exc)}
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "noscript"]):
-        tag.extract()
-
-    recs: List[str] = []
-    for li in soup.find_all("li"):
-        txt = _clean_text(li.get_text(" ", strip=True))
-        if len(txt) >= 40 and txt not in recs:
-            recs.append(txt)
-        if len(recs) >= 6:
-            break
-
-    if not recs:
-        paragraphs = []
-        for p in soup.find_all("p"):
-            txt = _clean_text(p.get_text(" ", strip=True))
-            if len(txt) >= 60:
-                paragraphs.append(txt)
-            if len(paragraphs) >= 4:
-                break
-        recs = paragraphs
-
-    return {"ok": True, "recommendations": recs[:6], "error": None}
-
-
-def init_nav_state(pathway: Dict[str, Any]) -> None:
-    nodes = pathway.get("nodes", [])
-    start_node = next((n for n in nodes if n.get("id") == "start"), nodes[0] if nodes else None)
-    st.session_state.nav_current = start_node.get("id") if start_node else None
-    st.session_state.nav_history = []
-
-
-def render_navigator(selected_pathway_id: str) -> None:
-    pathway = load_pathway(selected_pathway_id)
-    if not pathway:
-        st.info(f"No pathway YAML found for `{selected_pathway_id}`")
-        return
-
-    if st.session_state.get("nav_pathway") != selected_pathway_id or "nav_current" not in st.session_state:
-        init_nav_state(pathway)
-        st.session_state.nav_pathway = selected_pathway_id
-
-    nodes = {n["id"]: n for n in pathway.get("nodes", [])}
-    edges = pathway.get("edges", [])
-
-    current_id = st.session_state.get("nav_current")
-    current = nodes.get(current_id)
-    if not current:
-        st.warning("Current node missing; restarting at start node.")
-        init_nav_state(pathway)
-        current_id = st.session_state.get("nav_current")
-        current = nodes.get(current_id)
-        if not current:
-            st.error("Unable to load pathway nodes.")
-            return
-
-    st.write(f"**{pathway.get('title', selected_pathway_id)}**")
-    st.write(f"Node: `{current['id']}` ({current.get('type', 'unknown')})")
-    st.write(current.get("text", ""))
-
-    source_urls = current.get("source_urls", [])
-    if source_urls:
-        st.caption("Node source(s): " + " | ".join(source_urls))
-
-    next_ids = [e["to"] for e in edges if e.get("from") == current_id]
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Back", key="nav_back"):
-            history = st.session_state.get("nav_history", [])
-            if history:
-                st.session_state.nav_current = history.pop()
-                st.session_state.nav_history = history
-    with col2:
-        if st.button("Restart", key="nav_restart"):
-            init_nav_state(pathway)
-
-    if not next_ids:
-        st.success("Reached terminal node.")
-        return
-
-    st.write("Next step:")
-    for nid in next_ids:
-        label = nodes.get(nid, {}).get("label", nid)
-        if st.button(f"Go to: {label}", key=f"goto_{current_id}_{nid}"):
-            history = st.session_state.get("nav_history", [])
-            history.append(current_id)
-            st.session_state.nav_history = history
-            st.session_state.nav_current = nid
+def apply_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(160deg, #eef7ff 0%, #f8fcff 45%, #ffffff 100%);
+        }
+        .main .block-container {
+            max-width: 1120px;
+            padding-top: 1.2rem;
+        }
+        .router-title {
+            margin: 0 0 0.6rem 0;
+            font-size: clamp(1.5rem, 2.2vw, 2.2rem);
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #16344b;
+            letter-spacing: 0.2px;
+        }
+        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stNumberInput"]),
+        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMultiSelect"]),
+        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stRadio"]),
+        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stCheckbox"]) {
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 10px;
+            padding: 0.2rem 0.45rem 0.3rem 0.45rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def main() -> None:
-    st.title("Pediatric Infectious Pathway Router")
+    apply_theme()
+    st.markdown('<h1 class="router-title">Pediatric Infectious Pathway Router</h1>', unsafe_allow_html=True)
 
     age_mode = st.radio("Age Input", ["days", "years/months/days"], horizontal=True)
     if age_mode == "days":
@@ -568,28 +486,52 @@ def main() -> None:
     altered_mental_status = st.checkbox("Altered mental status", value=False)
     immunocompromised_or_onc = st.checkbox("Immunocompromised or oncology patient", value=False)
 
-    st.subheader("System Findings")
-    neuro = st.multiselect("Neuro", ["seizure", "neck_stiffness", "severe_headache"])
-    resp = st.multiselect(
-        "Respiratory",
-        ["influenza_like_illness", "hypoxia", "respiratory_distress", "cough", "wheeze", "stridor", "barky_cough"],
-    )
-    ent = st.multiselect("HEENT", ["eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus"])
-    gi = st.multiselect("GI", ["vomiting", "diarrhea", "severe_focal_abdominal_pain"])
-    gu = st.multiselect("GU", ["dysuria", "flank_pain", "fever_without_source"])
-    msk = st.multiselect("MSK", ["joint_pain", "limp", "refusal_to_bear_weight"])
-    skin = st.multiselect("Skin", ["localized_erythema", "warmth_or_tenderness", "fluctuance_or_purulence", "localized_swelling"])
-    kawasaki_features = st.multiselect(
-        "Kawasaki Features",
-        [
-            "kd_conjunctivitis",
-            "kd_oral_changes",
-            "kd_rash",
-            "kd_extremity_changes",
-            "kd_cervical_lymphadenopathy",
-        ],
-    )
-    kd_features = len(kawasaki_features)
+    st.subheader("Clinical Findings")
+    findings_options = [
+        "seizure",
+        "neck_stiffness",
+        "severe_headache",
+        "influenza_like_illness",
+        "hypoxia",
+        "respiratory_distress",
+        "cough",
+        "wheeze",
+        "stridor",
+        "barky_cough",
+        "eye_swelling",
+        "periorbital_erythema",
+        "pain_with_eom",
+        "drooling",
+        "muffled_voice",
+        "trismus",
+        "vomiting",
+        "diarrhea",
+        "severe_focal_abdominal_pain",
+        "dysuria",
+        "flank_pain",
+        "fever_without_source",
+        "joint_pain",
+        "limp",
+        "refusal_to_bear_weight",
+        "localized_erythema",
+        "warmth_or_tenderness",
+        "fluctuance_or_purulence",
+        "localized_swelling",
+        "kd_conjunctivitis",
+        "kd_oral_changes",
+        "kd_rash",
+        "kd_extremity_changes",
+        "kd_cervical_lymphadenopathy",
+    ]
+    findings = st.multiselect("Select findings", findings_options)
+    kd_flag_set = {
+        "kd_conjunctivitis",
+        "kd_oral_changes",
+        "kd_rash",
+        "kd_extremity_changes",
+        "kd_cervical_lymphadenopathy",
+    }
+    kd_features = len([f for f in findings if f in kd_flag_set])
 
     patient = {
         "age_days": age_days,
@@ -610,17 +552,10 @@ def main() -> None:
         },
     }
 
-    all_flags = [
-        "seizure", "neck_stiffness", "severe_headache", "influenza_like_illness", "hypoxia", "respiratory_distress",
-        "cough", "wheeze", "stridor", "barky_cough",
-        "eye_swelling", "periorbital_erythema", "pain_with_eom", "drooling", "muffled_voice", "trismus",
-        "vomiting", "diarrhea", "severe_focal_abdominal_pain", "dysuria", "flank_pain", "fever_without_source",
-        "joint_pain", "limp", "refusal_to_bear_weight", "localized_erythema", "warmth_or_tenderness",
-        "fluctuance_or_purulence", "localized_swelling",
-    ]
+    all_flags = findings_options
     for flag in all_flags:
         patient[flag] = False
-    for flag in neuro + resp + ent + gi + gu + msk + skin + kawasaki_features:
+    for flag in findings:
         patient[flag] = True
     patient["uticalc"]["other_source"] = not bool(patient.get("fever_without_source"))
 
@@ -651,54 +586,6 @@ def main() -> None:
                     st.markdown(f"- **{item['name']}** ({status_line}) - [Pathway Link]({src['url']})")
                 else:
                     st.markdown(f"- **{item['name']}** ({status_line})")
-
-    st.subheader("Recommendations (Scraped From Relevant CHOP Pathways)")
-    with st.container(border=True):
-        chop_items = []
-        for item in visible_items:
-            src = source_catalog.get(item["id"])
-            if src and src.get("publisher") == "chop" and "chop.edu" in src.get("url", ""):
-                chop_items.append((item, src))
-
-        if not chop_items:
-            st.write("No relevant CHOP pathways in the current differential.")
-        else:
-            shown_urls = set()
-            for item, src in chop_items:
-                if src["url"] in shown_urls:
-                    continue
-                shown_urls.add(src["url"])
-
-                st.markdown(f"**{item['name']}**")
-                st.markdown(f"[Open CHOP Pathway]({src['url']})")
-                scraped = scrape_chop_recommendations(src["url"])
-                if not scraped["ok"]:
-                    st.caption(f"Could not scrape recommendations: {scraped['error']}")
-                    continue
-                recs = scraped.get("recommendations", [])
-                if not recs:
-                    st.caption("No recommendation snippets were detected on this page.")
-                    continue
-                for rec in recs:
-                    st.markdown(f"- {rec}")
-
-    st.subheader("Pathway Navigator (Live)")
-    with st.container(border=True):
-        candidate_ids = [item["id"] for item in visible_items if (PATHWAYS_DIR / f"{item['id']}.yaml").exists()]
-        if not candidate_ids:
-            st.write("No navigable pathway available for current selections.")
-        else:
-            if st.session_state.get("nav_selected_pathway") not in candidate_ids:
-                st.session_state.nav_selected_pathway = candidate_ids[0]
-
-            selected_id = st.selectbox(
-                "Selected pathway",
-                candidate_ids,
-                index=candidate_ids.index(st.session_state.nav_selected_pathway),
-                key="nav_selected_pathway",
-            )
-            render_navigator(selected_id)
-
 
 if __name__ == "__main__":
     main()
