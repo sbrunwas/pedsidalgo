@@ -1,4 +1,4 @@
-"""Race-free UTICalc pretest lookup for children 2-24 months."""
+"""UTICalc pretest lookup for children 2-24 months."""
 
 from __future__ import annotations
 

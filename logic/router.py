@@ -383,7 +383,7 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
             name=p["title"],
             status="ACTIVE",
             priority="NORMAL",
-            reason=f"Activated because UTICalc >=2% (race-free pretest): {uticalc_risk:.2f}%",
+            reason=f"Activated because UTICalc >=2% (pretest): {uticalc_risk:.2f}%",
             source="chop",
         )
         trace("uticalc_rule", True, f"UTICalc {uticalc_risk:.2f}% >= 2%")
