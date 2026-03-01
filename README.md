@@ -3,7 +3,7 @@
 Production-ready v1 includes:
 - CHOP-first rules-spec router with transparent activation reasons
 - YAML pathway scaffolds for all configured pathways
-- Race-free deterministic UTICalc pretest lookup (2-24 months)
+- Deterministic UTICalc pretest lookup (2-24 months)
 - Consistency validator for sources, pathway graphs, and router references
 - Streamlit Router + Pathway Navigator
 - Pure-Python smoke tests for key clinical scenarios

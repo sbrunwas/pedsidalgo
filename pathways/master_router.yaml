@@ -82,7 +82,7 @@ activation_rules:
       age_months_range: [2, 24]
     activate_if:
       uticalc_pretest_percent_gte: 2.0
-    reason: UTICalc >=2% (race-free pretest)
+    reason: UTICalc >=2% (pretest)
 critical_overrides:
   flags:
     - hemodynamic_instability
