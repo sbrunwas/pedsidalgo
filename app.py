@@ -650,13 +650,14 @@ def apply_theme() -> None:
 def main() -> None:
     apply_theme()
     st.markdown('<h1 class="router-title">Pediatric Infectious Pathway Router</h1>', unsafe_allow_html=True)
+    st.caption("Clinical decision support only. Does not replace clinician judgment.")
 
     col1, col2 = st.columns(2)
     with col1:
         years = int(st.number_input("Years", min_value=0, max_value=21, value=1))
     with col2:
         months = int(st.number_input("Months", min_value=0, max_value=11, value=0))
-    age_days = years * 365 + months * 30
+    age_days = int(round((years * 365) + (months * 30.4375)))
 
     st.caption(f"Computed age_days: {age_days}")
     age_months = age_months_from_days(age_days)
@@ -802,8 +803,6 @@ def main() -> None:
     if "diarrhea" in selected_keys:
         bloody_diarrhea = st.checkbox("Bloody Diarrhea", value=False)
 
-    kd_features = 0
-
     patient = {
         "age_days": age_days,
         "age_months": age_months,
@@ -814,7 +813,6 @@ def main() -> None:
         "hemodynamic_instability": hemodynamic_instability,
         "altered_mental_status": altered_mental_status,
         "immunocompromised_or_onc": immunocompromised_or_onc,
-        "kd_features": kd_features,
         "uticalc": {
             "sex": sex,
             "circumcised": circumcised,
@@ -853,8 +851,7 @@ def main() -> None:
     kd_rash = bool(patient.get("rash"))
     kd_extremity = bool(patient.get("extremity_changes"))
     kd_nodes = bool(patient.get("cervical_lymphadenopathy"))
-    kd_features = sum([kd_conjunctivitis, kd_oral_changes, kd_rash, kd_extremity, kd_nodes])
-    patient["kd_features"] = kd_features
+    patient["kd_features"] = sum([kd_conjunctivitis, kd_oral_changes, kd_rash, kd_extremity, kd_nodes])
 
     show_centor_module = sore_throat_selected
     centor_result: Optional[Dict[str, object]] = None
@@ -928,6 +925,20 @@ def main() -> None:
         patient["centor_fever_gt_38"] = False
         patient["centor_cough_absent"] = False
 
+    controls_col1, controls_col2 = st.columns(2)
+    with controls_col1:
+        generate_clicked = st.button("Generate Differential")
+    with controls_col2:
+        clear_clicked = st.button("Clear Selections")
+    if clear_clicked:
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    if generate_clicked:
+        st.session_state["show_results"] = True
+
+    show_results = bool(st.session_state.get("show_results", False))
+
     # Explicit live UTICalc recomputation on every rerun using current inputs.
     live_uticalc_pretest = uticalc_pretest_percent(
         age_months=age_months,
@@ -955,84 +966,87 @@ def main() -> None:
         ),
     )
 
-    st.subheader("Differential To Consider")
-    with st.container(border=True):
-        fever_general = source_catalog.get("fever_general")
-        if fever_days > 0 or tmax_c >= 38.0:
-            if fever_general:
+    if show_results:
+        st.subheader("Differential To Consider")
+        with st.container(border=True):
+            fever_general = source_catalog.get("fever_general")
+            if fever_days > 0 or tmax_c >= 38.0:
+                if fever_general:
+                    st.markdown(
+                        f"- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
+                        f"Continue red-flag screening and reassessment. "
+                        f"[Fever General Pathway]({fever_general['url']})"
+                    )
+                else:
+                    st.markdown(
+                        "- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
+                        "Continue red-flag screening and reassessment."
+                    )
+            st.markdown("<div class='router-note'>Pathways are ranked by urgency and confidence.</div>", unsafe_allow_html=True)
+            if immunization_status in {"Underimmunized", "Unknown"}:
                 st.markdown(
-                    f"- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
-                    f"Continue red-flag screening and reassessment. "
-                    f"[Fever General Pathway]({fever_general['url']})"
+                    "- **Immunization-related consideration:** Underimmunized/unknown status may increase concern for "
+                    "vaccine-preventable etiologies and broader serious bacterial infection differential."
                 )
+            if 2 <= age_months <= 24 and live_uticalc_pretest is not None:
+                uti_text = f"UTICalc pretest (embedded): {live_uticalc_pretest:.2f}%"
+                if uti_item and uti_item.get("status") == "ACTIVE":
+                    uti_text += " -> UTI considered"
+                st.markdown(f"- **{uti_text}**")
+            if centor_result is not None and int(centor_result["score"]) <= 1:
+                pharyngitis_src = source_catalog.get("pharyngitis")
+                if pharyngitis_src:
+                    st.markdown(
+                        f"- **Centor score {centor_result['score']} (no auto-activation):** Manual pathway access - "
+                        f"[Pharyngitis Pathway]({pharyngitis_src['url']})"
+                    )
+            if not visible_items:
+                st.write("No differential items generated yet.")
             else:
-                st.markdown(
-                    "- **Baseline consideration:** Most pediatric febrile illnesses are viral/self-limited. "
-                    "Continue red-flag screening and reassessment."
+                for item in visible_items:
+                    _render_pathway_card(item, source_catalog)
+
+        assessment = generate_assessment(
+            age_months=int(round(age_months)),
+            fever_days=fever_days,
+            symptoms=selected_labels,
+            exam=[],
+            high_risk=immunocompromised_or_onc,
+            toxic=ill_appearing,
+            unstable=hemodynamic_instability,
+            fever_without_source=bool(patient.get("fever_without_source")),
+        )
+
+        st.subheader("Next Steps To Consider")
+        with st.container(border=True):
+            step_items: List[str] = []
+            if immunization_status in {"Underimmunized", "Unknown"}:
+                step_items.append(
+                    "Testing/Imaging: Consider expanded evaluation for vaccine-preventable and invasive bacterial causes per local protocol."
                 )
-        st.markdown("<div class='router-note'>Pathways are ranked by urgency and confidence.</div>", unsafe_allow_html=True)
-        if immunization_status in {"Underimmunized", "Unknown"}:
-            st.markdown(
-                "- **Immunization-related consideration:** Underimmunized/unknown status may increase concern for "
-                "vaccine-preventable etiologies and broader serious bacterial infection differential."
-            )
-        if 2 <= age_months <= 24 and live_uticalc_pretest is not None:
-            uti_text = f"UTICalc pretest (embedded): {live_uticalc_pretest:.2f}%"
-            if uti_item and uti_item.get("status") == "ACTIVE":
-                uti_text += " -> UTI considered"
-            st.markdown(f"- **{uti_text}**")
-        if centor_result is not None and int(centor_result["score"]) <= 1:
-            pharyngitis_src = source_catalog.get("pharyngitis")
-            if pharyngitis_src:
-                st.markdown(
-                    f"- **Centor score {centor_result['score']} (no auto-activation):** Manual pathway access - "
-                    f"[Pharyngitis Pathway]({pharyngitis_src['url']})"
+                step_items.append(
+                    "Supportive Care/Treatment: Use lower threshold for reassessment and escalation if clinical course worsens."
                 )
-        if not visible_items:
-            st.write("No differential items generated yet.")
-        else:
-            for item in visible_items:
-                _render_pathway_card(item, source_catalog)
+            for entry in assessment.get("recommended_workup", []):
+                step_items.append(f"Testing/Imaging: {entry}")
+            for entry in assessment.get("recommended_initial_management", []):
+                step_items.append(f"Supportive Care/Treatment: {entry}")
+            for entry in assessment.get("consults", []):
+                step_items.append(f"Consults: {entry}")
+            for entry in assessment.get("admit_considerations", []):
+                step_items.append(f"Disposition: {entry}")
+            if centor_result is not None:
+                step_items.append(
+                    f"Testing/Imaging: Centor total {centor_result['score']} with probability {centor_result['probability_range']}. {centor_result['recommendation']}"
+                )
 
-    assessment = generate_assessment(
-        age_months=int(round(age_months)),
-        fever_days=fever_days,
-        symptoms=selected_labels,
-        exam=[],
-        high_risk=immunocompromised_or_onc,
-        toxic=ill_appearing,
-        unstable=hemodynamic_instability,
-        fever_without_source=bool(patient.get("fever_without_source")),
-    )
-
-    st.subheader("Next Steps To Consider")
-    with st.container(border=True):
-        step_items: List[str] = []
-        if immunization_status in {"Underimmunized", "Unknown"}:
-            step_items.append(
-                "Testing/Imaging: Consider expanded evaluation for vaccine-preventable and invasive bacterial causes per local protocol."
-            )
-            step_items.append(
-                "Supportive Care/Treatment: Use lower threshold for reassessment and escalation if clinical course worsens."
-            )
-        for entry in assessment.get("recommended_workup", []):
-            step_items.append(f"Testing/Imaging: {entry}")
-        for entry in assessment.get("recommended_initial_management", []):
-            step_items.append(f"Supportive Care/Treatment: {entry}")
-        for entry in assessment.get("consults", []):
-            step_items.append(f"Consults: {entry}")
-        for entry in assessment.get("admit_considerations", []):
-            step_items.append(f"Disposition: {entry}")
-        if centor_result is not None:
-            step_items.append(
-                f"Testing/Imaging: Centor total {centor_result['score']} with probability {centor_result['probability_range']}. {centor_result['recommendation']}"
-            )
-
-        if not step_items:
-            st.write("No specific next-step suggestions generated for this input set.")
-        else:
-            for item in step_items:
-                st.markdown(f"- {item}")
+            if not step_items:
+                st.write("No specific next-step suggestions generated for this input set.")
+            else:
+                for item in step_items:
+                    st.markdown(f"- {item}")
+    else:
+        st.info("Select findings and click 'Generate Differential' to show differential and next-step suggestions.")
 
 if __name__ == "__main__":
     main()

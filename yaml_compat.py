@@ -27,7 +27,10 @@ def safe_load(text: str) -> Any:
         "-e",
         "obj = YAML.safe_load(ARGF.read, aliases: true); print JSON.generate(obj)",
     ]
-    proc = subprocess.run(cmd, input=text, text=True, capture_output=True, check=True)
+    try:
+        proc = subprocess.run(cmd, input=text, text=True, capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("PyYAML is required (pip install pyyaml). Ruby fallback failed.") from exc
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
@@ -43,5 +46,8 @@ def safe_dump(data: Any, sort_keys: bool = False) -> str:
         "-e",
         "obj = JSON.parse(ARGF.read); print obj.to_yaml",
     ]
-    proc = subprocess.run(cmd, input=payload, text=True, capture_output=True, check=True)
+    try:
+        proc = subprocess.run(cmd, input=payload, text=True, capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("PyYAML is required (pip install pyyaml). Ruby fallback failed.") from exc
     return proc.stdout

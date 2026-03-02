@@ -1,4 +1,4 @@
-from pediatric_infectious_app import generate_assessment
+from app import generate_assessment
 
 
 def _joined(bucket):

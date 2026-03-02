@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,11 +27,13 @@ class Activation:
     source: str  # chop | non_chop | note
 
 
+@lru_cache(maxsize=1)
 def load_sources() -> List[Dict[str, Any]]:
     data = safe_load(SOURCES_PATH.read_text())
     return data.get("pathways", [])
 
 
+@lru_cache(maxsize=1)
 def load_router_spec() -> Dict[str, Any]:
     return safe_load(MASTER_ROUTER_PATH.read_text())
 
@@ -681,14 +684,18 @@ def route_patient(patient: Dict[str, Any]) -> Dict[str, Any]:
     uticalc = patient.get("uticalc")
     uticalc_risk: Optional[float] = None
     if isinstance(uticalc, dict) and uticalc:
-        uticalc_risk = uticalc_pretest_percent(
-            age_months=age_months,
-            sex=uticalc.get("sex", "female"),
-            circumcised=uticalc.get("circumcised"),
-            other_source=bool(uticalc.get("other_source", True)),
-            tmax_ge_39=uticalc.get("tmax_ge_39"),
-            tmax_c=uticalc.get("tmax_c"),
-        )
+        try:
+            uticalc_risk = uticalc_pretest_percent(
+                age_months=age_months,
+                sex=uticalc.get("sex", "female"),
+                circumcised=uticalc.get("circumcised"),
+                other_source=bool(uticalc.get("other_source", True)),
+                tmax_ge_39=uticalc.get("tmax_ge_39"),
+                tmax_c=uticalc.get("tmax_c"),
+            )
+        except ValueError as exc:
+            uticalc_risk = None
+            trace("uticalc_input_error", True, f"UTICalc input error: {exc}")
 
     if patient.get("fever_without_source") and not (2 <= age_months <= 24):
         p = by_id["uti"]
